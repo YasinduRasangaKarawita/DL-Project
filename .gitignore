@@ -1,0 +1,88 @@
+# Python bytecode and tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Virtual environments and packaging
+.venv/
+venv/
+env/
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+service-account*.json
+
+# Datasets: keep documentation and final split manifests only
+data/raw/**
+!data/raw/README.md
+data/processed/**
+!data/processed/README.md
+data/external/**
+!data/external/README.md
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# Model checkpoints and exported graphs
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+models/**
+!models/README.md
+!models/model_manifest.example.json
+
+# Runtime output. Curate final report assets under reports/.
+results/**
+!results/README.md
+figures/**
+!figures/README.md
+runs/
+wandb/
+mlruns/
+lightning_logs/
+*.log
+
+# Temporary files and local caches
+tmp/
+temp/
+.cache/
+*.tmp
+*.bak
+
+# Assignment submission packages should be assembled outside Git history
+submission/
+*.turnitin.pdf
+

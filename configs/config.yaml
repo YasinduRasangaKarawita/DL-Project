@@ -1,0 +1,82 @@
+# Central Experiment and Hyperparameter Configuration
+project:
+  name: "plant-disease-classification"
+  version: "1.0.0"
+  random_seed: 42
+  device: "auto" # 'auto', 'cuda', or 'cpu'
+
+dataset:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  dataset_name: "PlantVillage"
+  image_size: [224, 224]
+  channels: 3
+  train_split: 0.70
+  val_split: 0.15
+  test_split: 0.15
+  num_workers: 0 # Windows safe
+  benchmark_samples_per_class: 100
+
+augmentation:
+  horizontal_flip_prob: 0.5
+  rotation_degrees: 20
+  zoom_range: [0.8, 1.2]
+  contrast_factor: 0.2
+  brightness_factor: 0.2
+  normalization:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+training:
+  batch_size: 32
+  initial_epochs: 15
+  fine_tune_epochs: 10
+  learning_rate: 0.001
+  fine_tune_learning_rate: 0.0001
+  weight_decay: 0.0001
+  optimizer: "Adam"
+  loss_function: "CrossEntropyLoss"
+  early_stopping_patience: 5
+  reduce_lr_patience: 2
+  reduce_lr_factor: 0.5
+  min_lr: 0.00001
+
+models:
+  custom_cnn:
+    name: "Custom_CNN"
+    conv_channels: [32, 64, 128]
+    dense_units: 256
+    dropout_rate: 0.5
+    save_path: "models/custom_cnn/best_model.pt"
+  
+  resnet50:
+    name: "ResNet50"
+    pretrained: true
+    freeze_base: true
+    fine_tune_unfreeze_layers: ["layer4"]
+    dropout_rate: 0.4
+    save_path: "models/resnet50/best_model.pt"
+
+  efficientnet_b0:
+    name: "EfficientNet_B0"
+    pretrained: true
+    freeze_base: true
+    fine_tune_unfreeze_layers: ["features.7", "features.8"]
+    dropout_rate: 0.3
+    save_path: "models/efficientnet/best_model.pt"
+
+  mobilenet_v3:
+    name: "MobileNet_V3_Large"
+    pretrained: true
+    freeze_base: true
+    fine_tune_unfreeze_layers: ["features.14", "features.15", "features.16"]
+    dropout_rate: 0.2
+    save_path: "models/mobilenet/best_model.pt"
+
+evaluation:
+  results_dir: "results"
+  metrics_dir: "results/metrics"
+  predictions_dir: "results/predictions"
+  experiments_dir: "results/experiments"
+  comparison_dir: "results/model_comparison"
+  figures_dir: "figures"

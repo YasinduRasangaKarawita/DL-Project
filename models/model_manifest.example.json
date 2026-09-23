@@ -1,0 +1,26 @@
+{
+  "release": "models-v1.0.0",
+  "dataset": {
+    "name": "TBD",
+    "version": "TBD",
+    "split_manifest_sha256": "TBD"
+  },
+  "preprocessing": {
+    "image_size": [224, 224],
+    "color_mode": "RGB",
+    "mean": [0.485, 0.456, 0.406],
+    "std": [0.229, 0.224, 0.225]
+  },
+  "classes": [],
+  "models": [
+    {
+      "architecture": "custom_cnn",
+      "file": "custom_cnn_best.pt",
+      "sha256": "TBD",
+      "git_commit": "TBD",
+      "seed": 42,
+      "validation_macro_f1": null
+    }
+  ]
+}
+

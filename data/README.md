@@ -50,8 +50,24 @@ data/raw/plantvillage/
 └── metadata/    # ignored upstream split and leaf-grouping files
 ```
 
-The next data-stage pull request will validate image readability and duplicates and create
-the final training/validation manifests from the official training partition.
+Run `python scripts/prepare_data.py validate` after acquisition. The audit checks image
+readability, RGB mode, expected class folders, exact and perceptual duplicates, upstream
+leaf-map coverage, and leakage across the official train/test boundary. Its detailed JSON
+report is reproducible local output under `data/processed/plantvillage/` and is ignored by
+Git.
+
+The upstream leaf map does not unambiguously cover every image and contains historical
+class-name inconsistencies. The validator therefore records coverage explicitly and gives
+unresolved images unique fallback groups; it never invents shared leaf IDs. Perceptual-hash
+matches are treated as review candidates, not definitive duplicates.
+
+The reviewed findings for the locked source are documented in
+`docs/DATA_VALIDATION.md`. In particular, five byte-identical groups cross the official
+train/test boundary, so the official lists must not be used unchanged for final training.
+
+Create the final grouped training/validation manifests from the official training
+partition only after this validation report has been reviewed. That work belongs in the
+separate frozen-manifest pull request.
 
 ## Current local development data
 

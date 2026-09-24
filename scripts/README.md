@@ -4,7 +4,7 @@ This directory is reserved for thin command-line entry points that call reusable
 
 Implemented interface:
 
-- `prepare_data.py`: acquire the pinned PlantVillage source dataset;
+- `prepare_data.py`: acquire and validate the pinned PlantVillage source dataset;
 
 Planned interfaces:
 
@@ -37,3 +37,22 @@ python scripts/prepare_data.py lock
 Downloaded images, the Hugging Face cache, copied grouping metadata, and the local
 provenance report are ignored by Git. Do not commit or manually move them into a tracked
 directory.
+
+## PlantVillage validation
+
+After acquisition, run the reproducible data-quality and leakage audit:
+
+```powershell
+python scripts/prepare_data.py validate
+```
+
+The command fully decodes every image, checks RGB mode and class folders, detects exact
+SHA-256 duplicates, screens perceptual near-duplicates with a 64-bit difference hash, and
+checks leaf-group and exact-duplicate leakage across the locked official train/test split.
+It writes the machine-readable report to the ignored local path
+`data/processed/plantvillage/validation_report.json`.
+
+Perceptual matches are review candidates rather than proof of duplication. The command
+fails for objective integrity or leakage errors and reports incomplete or historically
+inconsistent upstream leaf metadata as warnings. Do not create the training/validation
+manifests in this validation pull request.

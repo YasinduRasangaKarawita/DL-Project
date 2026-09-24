@@ -1,8 +1,9 @@
-"""Acquire the locked PlantVillage source dataset.
+"""Acquire and validate the locked PlantVillage source dataset.
 
 Run from the repository root:
     python scripts/prepare_data.py lock
     python scripts/prepare_data.py download
+    python scripts/prepare_data.py validate
 """
 
 from __future__ import annotations
@@ -25,12 +26,16 @@ from src.data.plantvillage_acquisition import (  # noqa: E402
     resolve_source_lock,
     write_source_lock,
 )
+from src.data.plantvillage_validation import validate_plantvillage_dataset  # noqa: E402
 
 DEFAULT_LOCK = PROJECT_ROOT / "data" / "plantvillage_source.lock.json"
 DEFAULT_DESTINATION = PROJECT_ROOT / "data" / "raw" / "plantvillage" / "color"
 DEFAULT_METADATA = PROJECT_ROOT / "data" / "raw" / "plantvillage" / "metadata"
 DEFAULT_PROVENANCE = (
     PROJECT_ROOT / "data" / "processed" / "plantvillage" / "provenance.json"
+)
+DEFAULT_VALIDATION_REPORT = (
+    PROJECT_ROOT / "data" / "processed" / "plantvillage" / "validation_report.json"
 )
 DEFAULT_CACHE = PROJECT_ROOT / ".cache" / "huggingface"
 
@@ -54,6 +59,16 @@ def build_parser() -> argparse.ArgumentParser:
     download_parser.add_argument("--metadata-dir", type=Path, default=DEFAULT_METADATA)
     download_parser.add_argument("--provenance-file", type=Path, default=DEFAULT_PROVENANCE)
     download_parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
+
+    validate_parser = subparsers.add_parser(
+        "validate", help="Audit image integrity, duplicates, leaf groups, and split leakage"
+    )
+    validate_parser.add_argument("--lock-file", type=Path, default=DEFAULT_LOCK)
+    validate_parser.add_argument("--color-dir", type=Path, default=DEFAULT_DESTINATION)
+    validate_parser.add_argument("--metadata-dir", type=Path, default=DEFAULT_METADATA)
+    validate_parser.add_argument("--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT)
+    validate_parser.add_argument("--near-duplicate-distance", type=int, default=4)
+    validate_parser.add_argument("--max-examples", type=int, default=100)
     return parser
 
 
@@ -84,12 +99,43 @@ def command_download(args: argparse.Namespace) -> None:
     print(f"Local provenance: {args.provenance_file}")
 
 
+def command_validate(args: argparse.Namespace) -> None:
+    report = validate_plantvillage_dataset(
+        color_dir=args.color_dir,
+        metadata_dir=args.metadata_dir,
+        lock_path=args.lock_file,
+        report_path=args.report_file,
+        near_duplicate_distance=args.near_duplicate_distance,
+        max_examples=args.max_examples,
+    )
+    summary = report["summary"]
+    print(f"Validation status: {summary['status'].upper()}")
+    print(
+        f"Images: {report['integrity']['readable_images']}; "
+        f"classes: {report['classes']['actual_count']}"
+    )
+    print(
+        "Official train/test leakage: "
+        f"{report['leaf_grouping']['train_test_group_overlap']} leaf groups, "
+        f"{report['duplicates']['exact']['cross_split_groups']} exact duplicate groups"
+    )
+    print(f"Validation report: {args.report_file}")
+    for warning in summary["warnings"]:
+        print(f"WARNING: {warning}")
+    for failure in summary["hard_failures"]:
+        print(f"ERROR: {failure}", file=sys.stderr)
+    if summary["status"] == "fail":
+        raise SystemExit(1)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "lock":
         command_lock(args)
     elif args.command == "download":
         command_download(args)
+    elif args.command == "validate":
+        command_validate(args)
 
 
 if __name__ == "__main__":

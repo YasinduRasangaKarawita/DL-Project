@@ -54,6 +54,12 @@ Acquire the locked PlantVillage color dataset:
 python scripts/prepare_data.py download
 ```
 
+Validate the acquired images and locked official split:
+
+```powershell
+python scripts/prepare_data.py validate
+```
+
 The committed source lock at `data/plantvillage_source.lock.json` makes this command fetch
 the reviewed revision rather than a moving `main`. Only the Data Lead should deliberately
 refresh that lock. Do not run final training until the grouped validation manifest is

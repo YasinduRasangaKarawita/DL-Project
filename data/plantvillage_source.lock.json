@@ -1,0 +1,36 @@
+{
+  "dataset": {
+    "citation_doi": "10.3389/fpls.2016.01419",
+    "configuration": "color",
+    "license_declared_by_source": "CC BY-SA 3.0",
+    "name": "PlantVillage",
+    "repository": "mohanty/PlantVillage",
+    "repository_type": "dataset",
+    "resolved_revision": "9e97599868962bd0079b8db4b7f1efa9185fa1e7"
+  },
+  "expected": {
+    "classes": 38,
+    "images": 54305,
+    "official_test_images": 10709,
+    "official_train_images": 43596
+  },
+  "schema_version": 1,
+  "source_files": {
+    "data.zip": {
+      "sha256": "fba30c6a7965e49be94b47a62f8aff6cfb1c35c27f475f22092b56db41745e84",
+      "size_bytes": 2184723441
+    },
+    "leaf_grouping/leaf-map.json": {
+      "sha256": "3b4b253683c6911744959a3870a92509b1faa1ee34e9f8585e21d0fe6337a25b",
+      "size_bytes": 2429879
+    },
+    "splits/color_test.txt": {
+      "sha256": "7a7257dcb5f9456feae6ae81248d29c28f45dc4cd41a00c13a5c5c198c5f2f8b",
+      "size_bytes": 1018650
+    },
+    "splits/color_train.txt": {
+      "sha256": "c43e0205b321d1c929116f5df1842348ac1e5c4861306e081416785d3c439dbd",
+      "size_bytes": 4151500
+    }
+  }
+}

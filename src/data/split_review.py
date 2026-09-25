@@ -21,6 +21,10 @@ REVIEW_FIELDNAMES = (
     "decision",
     "review_notes",
 )
+VALID_REVIEW_DECISIONS = {
+    "exclude_train_related",
+    "keep_both_false_positive",
+}
 
 
 def _candidate_id(train_path: str, test_path: str) -> str:
@@ -119,3 +123,52 @@ def export_perceptual_review_ledger(
         raise
 
     return len(rows)
+
+
+def validate_perceptual_review_ledger(
+    report_path: Path,
+    ledger_path: Path,
+) -> dict[str, int]:
+    """Verify that a completed ledger exactly covers the report's candidates."""
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    expected_rows = _review_rows(report)
+    expected_by_id = {str(row["candidate_id"]): row for row in expected_rows}
+
+    with ledger_path.open(encoding="utf-8", newline="") as file_handle:
+        reader = csv.DictReader(file_handle)
+        if tuple(reader.fieldnames or ()) != REVIEW_FIELDNAMES:
+            raise ValueError("Review ledger columns do not match the required schema")
+        actual_rows = list(reader)
+
+    if len(actual_rows) != len(expected_rows):
+        raise ValueError(
+            f"Review ledger has {len(actual_rows)} rows; expected {len(expected_rows)}"
+        )
+
+    counts = {decision: 0 for decision in sorted(VALID_REVIEW_DECISIONS)}
+    seen_ids: set[str] = set()
+    immutable_fields = REVIEW_FIELDNAMES[:-2]
+    for row in actual_rows:
+        candidate_id = row["candidate_id"]
+        if candidate_id in seen_ids:
+            raise ValueError(f"Duplicate review candidate ID: {candidate_id}")
+        seen_ids.add(candidate_id)
+
+        expected = expected_by_id.get(candidate_id)
+        if expected is None:
+            raise ValueError(f"Unknown review candidate ID: {candidate_id}")
+        for field in immutable_fields:
+            if row[field] != str(expected[field]):
+                raise ValueError(f"Candidate {candidate_id} has changed {field}")
+
+        decision = row["decision"]
+        if decision not in VALID_REVIEW_DECISIONS:
+            raise ValueError(f"Candidate {candidate_id} has invalid decision: {decision}")
+        if not row["review_notes"].strip():
+            raise ValueError(f"Candidate {candidate_id} requires review notes")
+        counts[decision] += 1
+
+    missing_ids = set(expected_by_id) - seen_ids
+    if missing_ids:
+        raise ValueError(f"Review ledger is missing {len(missing_ids)} candidates")
+    return counts

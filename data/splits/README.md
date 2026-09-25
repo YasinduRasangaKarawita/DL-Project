@@ -15,3 +15,17 @@ This creates `perceptual_duplicate_review.csv` with a `pending` decision for eac
 Review every pair before using the ledger as split-generation input. The command refuses to
 overwrite an existing ledger unless `--overwrite` is supplied, because overwriting could
 erase human review decisions.
+
+Record exactly one of these decisions for every pair:
+
+- `exclude_train_related`: visual evidence indicates the same physical leaf or image;
+  preserve the locked test image and exclude the related training image.
+- `keep_both_false_positive`: the images are visibly unrelated and the perceptual-hash
+  match is only a screening false positive.
+
+Every decision requires a short review note. Validate the completed ledger against the
+local source report before generating any split manifest:
+
+```powershell
+python scripts/prepare_data.py validate-review
+```

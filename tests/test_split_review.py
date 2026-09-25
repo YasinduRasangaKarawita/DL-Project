@@ -3,7 +3,10 @@ import json
 
 import pytest
 
-from src.data.split_review import export_perceptual_review_ledger
+from src.data.split_review import (
+    export_perceptual_review_ledger,
+    validate_perceptual_review_ledger,
+)
 
 
 def _write_report(path, *, expected_count=2, candidates=None):
@@ -77,3 +80,36 @@ def test_refuses_to_overwrite_existing_review_decisions(tmp_path):
 
     with pytest.raises(FileExistsError, match="discarding existing review decisions"):
         export_perceptual_review_ledger(report_path, output_path)
+
+
+def test_validates_complete_review_ledger_against_report(tmp_path):
+    report_path = tmp_path / "report.json"
+    output_path = tmp_path / "review.csv"
+    _write_report(report_path)
+    export_perceptual_review_ledger(report_path, output_path)
+
+    rows = list(csv.DictReader(output_path.read_text(encoding="utf-8").splitlines()))
+    for index, row in enumerate(rows):
+        row["decision"] = (
+            "exclude_train_related" if index == 0 else "keep_both_false_positive"
+        )
+        row["review_notes"] = "Visual comparison completed."
+    with output_path.open("w", encoding="utf-8", newline="") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=rows[0].keys(), lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    assert validate_perceptual_review_ledger(report_path, output_path) == {
+        "exclude_train_related": 1,
+        "keep_both_false_positive": 1,
+    }
+
+
+def test_rejects_pending_or_undocumented_review_decision(tmp_path):
+    report_path = tmp_path / "report.json"
+    output_path = tmp_path / "review.csv"
+    _write_report(report_path)
+    export_perceptual_review_ledger(report_path, output_path)
+
+    with pytest.raises(ValueError, match="invalid decision: pending"):
+        validate_perceptual_review_ledger(report_path, output_path)

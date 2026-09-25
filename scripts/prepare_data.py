@@ -28,7 +28,10 @@ from src.data.plantvillage_acquisition import (  # noqa: E402
     write_source_lock,
 )
 from src.data.plantvillage_validation import validate_plantvillage_dataset  # noqa: E402
-from src.data.split_review import export_perceptual_review_ledger  # noqa: E402
+from src.data.split_review import (  # noqa: E402
+    export_perceptual_review_ledger,
+    validate_perceptual_review_ledger,
+)
 
 DEFAULT_LOCK = PROJECT_ROOT / "data" / "plantvillage_source.lock.json"
 DEFAULT_DESTINATION = PROJECT_ROOT / "data" / "raw" / "plantvillage" / "color"
@@ -83,6 +86,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--overwrite",
         action="store_true",
         help="Replace an existing ledger and discard any recorded decisions",
+    )
+
+    validate_review_parser = subparsers.add_parser(
+        "validate-review",
+        help="Verify that every perceptual candidate has a valid documented decision",
+    )
+    validate_review_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    validate_review_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
     )
     return parser
 
@@ -153,6 +167,13 @@ def command_review_candidates(args: argparse.Namespace) -> None:
     print(f"Review ledger: {args.output_file}")
 
 
+def command_validate_review(args: argparse.Namespace) -> None:
+    counts = validate_perceptual_review_ledger(args.report_file, args.review_file)
+    print(f"Validated review decisions: {sum(counts.values())}")
+    for decision, count in counts.items():
+        print(f"{decision}: {count}")
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "lock":
@@ -163,6 +184,8 @@ def main() -> None:
         command_validate(args)
     elif args.command == "review-candidates":
         command_review_candidates(args)
+    elif args.command == "validate-review":
+        command_validate_review(args)
 
 
 if __name__ == "__main__":

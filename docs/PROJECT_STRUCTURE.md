@@ -3,7 +3,9 @@
 ## Source-controlled inputs
 
 - `configs/`: experiment settings. A result is not reproducible without its exact config.
-- `data/splits/`: final train/validation/test manifests and their hashes. These contain relative paths or stable sample IDs, not images.
+- `data/splits/`: reviewed train/validation/test manifests, review/exclusion evidence,
+  class mapping, split metadata, and hashes. These contain relative paths and stable group
+  IDs, not images; the data loader treats them as immutable inputs.
 - `src/`: reusable implementation. Training logic belongs here, not in notebooks.
 - `tests/`: fast checks for data invariants, tensor shapes, model outputs, and metrics.
 - `notebooks/`: thin narrative interfaces for EDA and experiments.
@@ -41,4 +43,3 @@ YYYYMMDD-HHMM_<model>_seed<seed>_<short-git-sha>
 ## Boundary between code, notebooks, and results
 
 `src/` defines behavior, `configs/` defines an experiment, notebooks explain or invoke it, `results/` records raw outputs, and `reports/` contains the reviewed evidence presented to markers. Keeping those roles separate prevents hidden notebook state and accidental result cherry-picking.
-

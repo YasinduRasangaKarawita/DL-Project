@@ -5,6 +5,11 @@ Run from the repository root:
     python scripts/prepare_data.py download
     python scripts/prepare_data.py validate
     python scripts/prepare_data.py review-candidates
+    python scripts/prepare_data.py validate-review
+    python scripts/prepare_data.py build-exclusions
+    python scripts/prepare_data.py validate-exclusions
+    python scripts/prepare_data.py build-manifests --validation-fraction 0.15 --seed 42
+    python scripts/prepare_data.py validate-manifests
 """
 
 from __future__ import annotations

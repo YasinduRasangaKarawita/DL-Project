@@ -17,7 +17,7 @@ written to the ignored file `data/processed/plantvillage/provenance.json`.
 | Archive SHA-256 | Locked upstream hash and locally verified digest |
 | Expected images | 54,305 |
 | Expected classes | 38 crop–disease pairs |
-| Exclusions/repairs | TBD |
+| Exclusions/repairs | 19 unique official-training images excluded for cross-boundary leakage risk; source files remain unchanged |
 | Source split | Leaf-grouped 43,596 train / 10,709 locked test |
 | Validation split | 6,540 images (15% target from cleaned official training, seed 42, grouped by physical leaf) |
 | Final train/test counts | 37,037 train / 10,709 locked test |
@@ -73,7 +73,11 @@ their provenance, coverage, grouping, and checksums with
 
 ## Current local development data
 
-`data/raw/` currently contains 300 programmatically generated images: 20 examples in each of 15 classes. They exist only to exercise the pipeline quickly. They are not downloaded PlantVillage photographs and must never be described as such in the report.
+The legacy class folders directly under `data/raw/` contain 300 programmatically generated
+images: 20 examples in each of 15 classes. They exist only to exercise the legacy smoke
+pipeline. They are not downloaded PlantVillage photographs and must never be described as
+such in the report. The locked real dataset lives separately at
+`data/raw/plantvillage/color/` after acquisition.
 
 The training loader does not discover classes or create random splits. It reads the
 checksum-verified manifests and class mapping tracked under `data/splits/`.

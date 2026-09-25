@@ -1,8 +1,13 @@
 import csv
 import json
 
+import pytest
+
 from src.data.split_exclusions import EXCLUSION_FIELDNAMES
-from src.data.split_manifests import build_grouped_split_manifests
+from src.data.split_manifests import (
+    build_grouped_split_manifests,
+    validate_grouped_split_manifests,
+)
 
 
 def _write_fixture(tmp_path):
@@ -142,3 +147,45 @@ def test_rejects_invalid_validation_fraction(tmp_path):
             assert "between 0 and 1" in str(exc)
         else:
             raise AssertionError("Invalid validation fraction was accepted")
+
+
+def test_validates_frozen_manifest_bundle(tmp_path):
+    metadata_dir, lock_path, exclusion_path = _write_fixture(tmp_path)
+    output_dir = tmp_path / "manifests"
+    build_grouped_split_manifests(
+        metadata_dir,
+        lock_path,
+        exclusion_path,
+        output_dir,
+        validation_fraction=0.4,
+        seed=42,
+    )
+
+    summary = validate_grouped_split_manifests(
+        metadata_dir, lock_path, exclusion_path, output_dir
+    )
+
+    assert summary["split_counts"] == {"train": 4, "validation": 3, "test": 2}
+    assert summary["classes"] == 2
+    assert summary["excluded_unique_training_images"] == 1
+    assert len(summary["manifest_bundle_sha256"]) == 64
+
+
+def test_validation_rejects_modified_manifest(tmp_path):
+    metadata_dir, lock_path, exclusion_path = _write_fixture(tmp_path)
+    output_dir = tmp_path / "manifests"
+    build_grouped_split_manifests(
+        metadata_dir,
+        lock_path,
+        exclusion_path,
+        output_dir,
+        validation_fraction=0.4,
+        seed=42,
+    )
+    with (output_dir / "train.csv").open("a", encoding="utf-8") as file_handle:
+        file_handle.write("\n")
+
+    with pytest.raises(ValueError, match="Checksum mismatch: train.csv"):
+        validate_grouped_split_manifests(
+            metadata_dir, lock_path, exclusion_path, output_dir
+        )

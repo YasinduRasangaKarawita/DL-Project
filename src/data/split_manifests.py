@@ -291,3 +291,153 @@ def build_grouped_split_manifests(
     for filename, content in contents.items():
         _write_bytes_atomic(output_dir / filename, content)
     return metadata
+
+
+def _read_manifest(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as file_handle:
+        reader = csv.DictReader(file_handle)
+        if tuple(reader.fieldnames or ()) != MANIFEST_FIELDNAMES:
+            raise ValueError(f"Manifest columns do not match the schema: {path.name}")
+        return list(reader)
+
+
+def _validate_checksums(manifest_dir: Path) -> str:
+    checksum_path = manifest_dir / "checksums.sha256"
+    expected_names = set(GENERATED_FILENAMES) - {"checksums.sha256"}
+    recorded: dict[str, str] = {}
+    for line_number, line in enumerate(
+        checksum_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        parts = line.split("  ", 1)
+        if len(parts) != 2 or len(parts[0]) != 64:
+            raise ValueError(f"Malformed checksum line {line_number}")
+        digest, filename = parts
+        if filename in recorded:
+            raise ValueError(f"Duplicate checksum entry: {filename}")
+        recorded[filename] = digest
+    if set(recorded) != expected_names:
+        raise ValueError("Checksum entries do not match the generated manifest files")
+    for filename, expected_digest in recorded.items():
+        actual_digest = hashlib.sha256((manifest_dir / filename).read_bytes()).hexdigest()
+        if actual_digest != expected_digest:
+            raise ValueError(f"Checksum mismatch: {filename}")
+    return hashlib.sha256(checksum_path.read_bytes()).hexdigest()
+
+
+def validate_grouped_split_manifests(
+    metadata_dir: Path,
+    lock_path: Path,
+    exclusion_path: Path,
+    manifest_dir: Path,
+) -> dict[str, Any]:
+    """Independently validate frozen manifests without regenerating them."""
+    bundle_checksum = _validate_checksums(manifest_dir)
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    revision = str(lock["dataset"]["resolved_revision"])
+    excluded_paths = _read_excluded_paths(exclusion_path, revision)
+    official_train = set(_read_official_paths(metadata_dir / "color_train.txt"))
+    official_test = set(_read_official_paths(metadata_dir / "color_test.txt"))
+    leaf_map = json.loads((metadata_dir / "leaf-map.json").read_text(encoding="utf-8"))
+
+    class_mapping = json.loads(
+        (manifest_dir / "class_mapping.json").read_text(encoding="utf-8")
+    )
+    classes = class_mapping.get("classes")
+    class_to_index = class_mapping.get("class_to_index")
+    if not isinstance(classes, list) or classes != sorted(classes):
+        raise ValueError("Class list must be sorted")
+    expected_mapping = {class_name: index for index, class_name in enumerate(classes)}
+    if class_to_index != expected_mapping:
+        raise ValueError("Class mapping is not contiguous or does not match the class list")
+
+    split_rows = {
+        "train": _read_manifest(manifest_dir / "train.csv"),
+        "validation": _read_manifest(manifest_dir / "validation.csv"),
+        "test": _read_manifest(manifest_dir / "test.csv"),
+    }
+    expected_source = {
+        "train": "official_train",
+        "validation": "official_train",
+        "test": "official_test",
+    }
+    split_paths: dict[str, set[str]] = {}
+    split_groups: dict[str, set[str]] = {}
+    for split, rows in split_rows.items():
+        paths: set[str] = set()
+        groups: set[str] = set()
+        for row in rows:
+            relative_path = row["relative_path"]
+            path_parts = PurePosixPath(relative_path).parts
+            if len(path_parts) != 2:
+                raise ValueError(f"Unsafe or malformed manifest path: {relative_path}")
+            class_name = path_parts[0]
+            if row["class_name"] != class_name:
+                raise ValueError(f"Class/path mismatch: {relative_path}")
+            if row["class_index"] != str(class_to_index.get(class_name)):
+                raise ValueError(f"Class index mismatch: {relative_path}")
+            if row["source_partition"] != expected_source[split]:
+                raise ValueError(f"Source partition mismatch: {relative_path}")
+            expected_group, _, _ = resolve_leaf_group(relative_path, class_name, leaf_map)
+            if row["group_id"] != expected_group:
+                raise ValueError(f"Leaf group mismatch: {relative_path}")
+            if relative_path in paths:
+                raise ValueError(f"Duplicate path in {split}: {relative_path}")
+            paths.add(relative_path)
+            groups.add(row["group_id"])
+        split_paths[split] = paths
+        split_groups[split] = groups
+
+    if split_paths["train"] & split_paths["validation"]:
+        raise ValueError("Paths cross train and validation")
+    if split_paths["train"] & split_paths["test"]:
+        raise ValueError("Paths cross train and test")
+    if split_paths["validation"] & split_paths["test"]:
+        raise ValueError("Paths cross validation and test")
+    if (split_paths["train"] | split_paths["validation"]) != (
+        official_train - excluded_paths
+    ):
+        raise ValueError("Development manifests do not match cleaned official training data")
+    if split_paths["test"] != official_test:
+        raise ValueError("Test manifest does not exactly preserve the official test partition")
+    for left, right in (("train", "validation"), ("train", "test"), ("validation", "test")):
+        if split_groups[left] & split_groups[right]:
+            raise ValueError(f"Leaf groups cross {left} and {right}")
+
+    observed_classes = {
+        split: {row["class_name"] for row in rows}
+        for split, rows in split_rows.items()
+    }
+    expected_classes = set(classes)
+    for split, present_classes in observed_classes.items():
+        if present_classes != expected_classes:
+            raise ValueError(f"Class coverage is incomplete in {split}")
+
+    split_metadata = json.loads(
+        (manifest_dir / "split_metadata.json").read_text(encoding="utf-8")
+    )
+    if split_metadata.get("dataset_revision") != revision:
+        raise ValueError("Split metadata dataset revision does not match source lock")
+    observed_counts = {split: len(rows) for split, rows in split_rows.items()}
+    if split_metadata.get("split_counts") != observed_counts:
+        raise ValueError("Split metadata counts do not match manifests")
+    observed_class_counts = {
+        split: dict(sorted(Counter(row["class_name"] for row in rows).items()))
+        for split, rows in split_rows.items()
+    }
+    if split_metadata.get("class_counts") != observed_class_counts:
+        raise ValueError("Split metadata class counts do not match manifests")
+    expected_source_counts = {
+        "official_train": len(official_train),
+        "official_test": len(official_test),
+        "excluded_unique_training_images": len(excluded_paths),
+        "cleaned_official_train": len(official_train - excluded_paths),
+    }
+    if split_metadata.get("source_counts") != expected_source_counts:
+        raise ValueError("Split metadata source counts do not match locked inputs")
+
+    return {
+        "split_counts": observed_counts,
+        "classes": len(classes),
+        "excluded_unique_training_images": len(excluded_paths),
+        "manifest_bundle_sha256": bundle_checksum,
+    }

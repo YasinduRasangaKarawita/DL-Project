@@ -32,7 +32,10 @@ from src.data.split_exclusions import (  # noqa: E402
     build_training_exclusion_ledger,
     validate_training_exclusion_ledger,
 )
-from src.data.split_manifests import build_grouped_split_manifests  # noqa: E402
+from src.data.split_manifests import (  # noqa: E402
+    build_grouped_split_manifests,
+    validate_grouped_split_manifests,
+)
 from src.data.split_review import (  # noqa: E402
     export_perceptual_review_ledger,
     validate_perceptual_review_ledger,
@@ -160,6 +163,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir", type=Path, default=PROJECT_ROOT / "data" / "splits"
     )
     build_manifests_parser.add_argument("--overwrite", action="store_true")
+
+    validate_manifests_parser = subparsers.add_parser(
+        "validate-manifests",
+        help="Independently validate frozen manifests and their checksums",
+    )
+    validate_manifests_parser.add_argument("--lock-file", type=Path, default=DEFAULT_LOCK)
+    validate_manifests_parser.add_argument(
+        "--metadata-dir", type=Path, default=DEFAULT_METADATA
+    )
+    validate_manifests_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    validate_manifests_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+    validate_manifests_parser.add_argument(
+        "--exclusion-file", type=Path, default=DEFAULT_EXCLUSION_LEDGER
+    )
+    validate_manifests_parser.add_argument(
+        "--manifest-dir", type=Path, default=PROJECT_ROOT / "data" / "splits"
+    )
     return parser
 
 
@@ -284,6 +308,25 @@ def command_build_manifests(args: argparse.Namespace) -> None:
     print(f"Test images: {metadata['split_counts']['test']}")
 
 
+def command_validate_manifests(args: argparse.Namespace) -> None:
+    validate_training_exclusion_ledger(
+        args.report_file,
+        args.review_file,
+        args.exclusion_file,
+    )
+    summary = validate_grouped_split_manifests(
+        args.metadata_dir,
+        args.lock_file,
+        args.exclusion_file,
+        args.manifest_dir,
+    )
+    print(f"Validated manifest classes: {summary['classes']}")
+    for split, count in summary["split_counts"].items():
+        print(f"{split.capitalize()} images: {count}")
+    print(f"Excluded training images: {summary['excluded_unique_training_images']}")
+    print(f"Manifest bundle SHA-256: {summary['manifest_bundle_sha256']}")
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "lock":
@@ -302,6 +345,8 @@ def main() -> None:
         command_validate_exclusions(args)
     elif args.command == "build-manifests":
         command_build_manifests(args)
+    elif args.command == "validate-manifests":
+        command_validate_manifests(args)
 
 
 if __name__ == "__main__":

@@ -52,3 +52,13 @@ python scripts/prepare_data.py build-manifests --validation-fraction FRACTION --
 
 The generator stratifies by class approximately while keeping every resolved physical-leaf
 group wholly in either training or validation. The official test partition is preserved.
+
+After generation, independently validate the committed bundle without regenerating it:
+
+```powershell
+python scripts/prepare_data.py validate-manifests
+```
+
+This verifies file checksums, source revision and counts, exclusion coverage, class mapping,
+manifest metadata, exact official-test preservation, and path/group isolation across all
+three partitions.

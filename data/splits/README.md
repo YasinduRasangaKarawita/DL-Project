@@ -29,3 +29,15 @@ local source report before generating any split manifest:
 ```powershell
 python scripts/prepare_data.py validate-review
 ```
+
+After the review ledger is complete, consolidate its approved training removals with the
+byte-identical files that cross the official train/test boundary:
+
+```powershell
+python scripts/prepare_data.py build-exclusions
+python scripts/prepare_data.py validate-exclusions
+```
+
+The resulting `training_exclusions.csv` contains evidence records rather than deleting or
+moving source images. A training image can appear more than once when multiple test images
+support the same exclusion; split generation must treat `train_path` as a set.

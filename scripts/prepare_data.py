@@ -28,6 +28,10 @@ from src.data.plantvillage_acquisition import (  # noqa: E402
     write_source_lock,
 )
 from src.data.plantvillage_validation import validate_plantvillage_dataset  # noqa: E402
+from src.data.split_exclusions import (  # noqa: E402
+    build_training_exclusion_ledger,
+    validate_training_exclusion_ledger,
+)
 from src.data.split_review import (  # noqa: E402
     export_perceptual_review_ledger,
     validate_perceptual_review_ledger,
@@ -43,6 +47,7 @@ DEFAULT_VALIDATION_REPORT = (
     PROJECT_ROOT / "data" / "processed" / "plantvillage" / "validation_report.json"
 )
 DEFAULT_REVIEW_LEDGER = PROJECT_ROOT / "data" / "splits" / "perceptual_duplicate_review.csv"
+DEFAULT_EXCLUSION_LEDGER = PROJECT_ROOT / "data" / "splits" / "training_exclusions.csv"
 DEFAULT_CACHE = PROJECT_ROOT / ".cache" / "huggingface"
 
 
@@ -97,6 +102,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_review_parser.add_argument(
         "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+
+    build_exclusions_parser = subparsers.add_parser(
+        "build-exclusions",
+        help="Combine exact-duplicate and reviewed perceptual training exclusions",
+    )
+    build_exclusions_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    build_exclusions_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+    build_exclusions_parser.add_argument(
+        "--output-file", type=Path, default=DEFAULT_EXCLUSION_LEDGER
+    )
+    build_exclusions_parser.add_argument("--overwrite", action="store_true")
+
+    validate_exclusions_parser = subparsers.add_parser(
+        "validate-exclusions",
+        help="Verify the training-exclusion ledger against its reviewed inputs",
+    )
+    validate_exclusions_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    validate_exclusions_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+    validate_exclusions_parser.add_argument(
+        "--exclusion-file", type=Path, default=DEFAULT_EXCLUSION_LEDGER
     )
     return parser
 
@@ -174,6 +208,33 @@ def command_validate_review(args: argparse.Namespace) -> None:
         print(f"{decision}: {count}")
 
 
+def _print_exclusion_summary(summary: dict[str, int]) -> None:
+    print(f"Exclusion evidence records: {summary['records']}")
+    print(f"Unique training images excluded: {summary['unique_training_images']}")
+    print(f"Exact-duplicate records: {summary['exact_duplicate_cross_split']}")
+    print(f"Perceptual-review records: {summary['perceptual_related_cross_split']}")
+
+
+def command_build_exclusions(args: argparse.Namespace) -> None:
+    summary = build_training_exclusion_ledger(
+        args.report_file,
+        args.review_file,
+        args.output_file,
+        overwrite=args.overwrite,
+    )
+    _print_exclusion_summary(summary)
+    print(f"Training-exclusion ledger: {args.output_file}")
+
+
+def command_validate_exclusions(args: argparse.Namespace) -> None:
+    summary = validate_training_exclusion_ledger(
+        args.report_file,
+        args.review_file,
+        args.exclusion_file,
+    )
+    _print_exclusion_summary(summary)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "lock":
@@ -186,6 +247,10 @@ def main() -> None:
         command_review_candidates(args)
     elif args.command == "validate-review":
         command_validate_review(args)
+    elif args.command == "build-exclusions":
+        command_build_exclusions(args)
+    elif args.command == "validate-exclusions":
+        command_validate_exclusions(args)
 
 
 if __name__ == "__main__":

@@ -41,3 +41,14 @@ python scripts/prepare_data.py validate-exclusions
 The resulting `training_exclusions.csv` contains evidence records rather than deleting or
 moving source images. A training image can appear more than once when multiple test images
 support the same exclusion; split generation must treat `train_path` as a set.
+
+The grouped manifest generator requires an explicit validation fraction because the value
+means a fraction of the cleaned official training partition—not a fraction of the complete
+dataset. After the team agrees on that fraction, generate manifests with a fixed seed:
+
+```powershell
+python scripts/prepare_data.py build-manifests --validation-fraction FRACTION --seed 42
+```
+
+The generator stratifies by class approximately while keeping every resolved physical-leaf
+group wholly in either training or validation. The official test partition is preserved.

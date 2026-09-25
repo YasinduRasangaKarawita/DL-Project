@@ -1,5 +1,5 @@
-import os
 import json
+import os
 
 notebooks_dir = "notebooks"
 os.makedirs(notebooks_dir, exist_ok=True)
@@ -58,18 +58,17 @@ print("EDA figures successfully generated in figures/dataset/")""")
 
 # 2. Preprocessing
 nb2 = make_notebook([
-    md_cell("# 🔄 02. Preprocessing, Data Augmentation & Stratified Splitting\nDemonstrates data leakage prevention, stratified 70/15/15 train/val/test splitting, and torchvision transform pipelines."),
+    md_cell("# 🔄 02. Preprocessing, Data Augmentation & Frozen Splits\nLoads the checksum-verified grouped train/validation/test manifests and demonstrates the torchvision transform pipelines."),
     code_cell("""import os, sys
 sys.path.append('..')
 from src.data.dataset_loader import get_dataloaders
 from src.data.preprocessing import get_transforms
 
 train_loader, val_loader, test_loader, classes, class_to_idx = get_dataloaders(
-    raw_dir='../data/raw',
-    processed_dir='../data/processed',
+    raw_dir='../data/raw/plantvillage/color',
+    manifest_dir='../data/splits',
     batch_size=32,
     image_size=(224, 224),
-    train_split=0.70, val_split=0.15, test_split=0.15,
     random_seed=42
 )
 print(f"Train batches: {len(train_loader)} | Val batches: {len(val_loader)} | Test batches: {len(test_loader)}")

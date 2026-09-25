@@ -1,31 +1,30 @@
-import os
-import sys
 import argparse
-import time
 import json
+import os
+import time
+
 import torch
 import torch.nn as nn
-from typing import Dict, Any
 
-from src.utils.seed import set_seed
-from src.utils.logger import setup_logger
-from src.utils.helpers import load_yaml_config, get_device
+from src.data.dataset_loader import get_dataloaders
 from src.data.download_data import prepare_dataset
 from src.data.validate_data import validate_dataset_integrity
-from src.data.dataset_loader import get_dataloaders
+from src.evaluation.confusion_matrix import plot_confusion_matrix
+from src.evaluation.dataset_analysis import generate_dataset_figures
+from src.evaluation.error_analysis import run_error_analysis
+from src.evaluation.metrics import evaluate_model_metrics
+from src.evaluation.model_comparison import generate_model_comparison
+from src.evaluation.training_curves import plot_learning_curves
 from src.models.custom_cnn import CustomCNN
-from src.models.resnet50 import get_resnet50, unfreeze_resnet50_layers
 from src.models.efficientnet_b0 import get_efficientnet_b0, unfreeze_efficientnet_layers
 from src.models.mobilenet_v3 import get_mobilenet_v3, unfreeze_mobilenet_layers
-from src.training.trainer import ModelTrainer
-from src.training.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, CSVLogger
+from src.models.resnet50 import get_resnet50, unfreeze_resnet50_layers
+from src.training.callbacks import CSVLogger, EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from src.training.experiment_tracker import ExperimentTracker
-from src.evaluation.metrics import evaluate_model_metrics
-from src.evaluation.confusion_matrix import plot_confusion_matrix
-from src.evaluation.error_analysis import run_error_analysis
-from src.evaluation.model_comparison import generate_model_comparison
-from src.evaluation.dataset_analysis import generate_dataset_figures
-from src.evaluation.training_curves import plot_learning_curves
+from src.training.trainer import ModelTrainer
+from src.utils.helpers import get_device, load_yaml_config
+from src.utils.logger import setup_logger
+from src.utils.seed import set_seed
 
 logger = setup_logger("pipeline_runner")
 
@@ -44,7 +43,7 @@ def run_pipeline(config_path: str = "configs/config.yaml", quick_mode: bool = Fa
     # 1. Dataset Preparation & Validation
     raw_dir = config["dataset"]["raw_dir"]
     samples_per_class = 20 if quick_mode else config["dataset"].get("benchmark_samples_per_class", 60)
-    
+
     logger.info("Step 1: Preparing PlantVillage Dataset...")
     classes = prepare_dataset(raw_dir=raw_dir, samples_per_class=samples_per_class)
     num_classes = len(classes)
@@ -60,24 +59,18 @@ def run_pipeline(config_path: str = "configs/config.yaml", quick_mode: bool = Fa
     batch_size = 16 if quick_mode else config["training"].get("batch_size", 32)
     img_size = tuple(config["dataset"].get("image_size", [224, 224]))
 
-    logger.info("Step 4: Preparing Stratified 70/15/15 Loaders...")
+    logger.info("Step 4: Loading frozen grouped data manifests...")
     train_loader, val_loader, test_loader, class_names, class_to_idx = get_dataloaders(
         raw_dir=raw_dir,
-        processed_dir=config["dataset"]["processed_dir"],
+        manifest_dir=config["dataset"].get("manifest_dir", "data/splits"),
         batch_size=batch_size,
         image_size=img_size,
-        train_split=config["dataset"].get("train_split", 0.70),
-        val_split=config["dataset"].get("val_split", 0.15),
-        test_split=config["dataset"].get("test_split", 0.15),
         random_seed=seed,
         num_workers=0,
         augmentation_config=config.get("augmentation", {})
     )
 
-    # Load test image paths for error analysis
-    with open(os.path.join(config["dataset"]["processed_dir"], "split_indices.json"), "r", encoding="utf-8") as f:
-        split_meta = json.load(f)
-    test_paths = split_meta["test_paths"]
+    test_paths = list(test_loader.dataset.image_paths)
 
     epochs_init = 2 if quick_mode else config["training"].get("initial_epochs", 10)
     epochs_fine = 1 if quick_mode else config["training"].get("fine_tune_epochs", 5)
@@ -119,13 +112,13 @@ def run_pipeline(config_path: str = "configs/config.yaml", quick_mode: bool = Fa
         save_path = m_cfg["save_path"]
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-        logger.info(f"\n==================================================")
+        logger.info("\n==================================================")
         logger.info(f"  Training & Evaluating Architecture: {m_name}")
-        logger.info(f"==================================================")
+        logger.info("==================================================")
 
         model = m_cfg["builder"]().to(device)
         criterion = nn.CrossEntropyLoss()
-        
+
         lr_init = config["training"].get("learning_rate", 0.001)
         optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
@@ -235,7 +228,7 @@ def run_pipeline(config_path: str = "configs/config.yaml", quick_mode: bool = Fa
     logger.info("\nStep 5: Generating Comparative Analysis & Comparison Table...")
     comparison_df = generate_model_comparison()
     logger.info("\n" + comparison_df.to_string(index=False))
-    
+
     logger.info("================================================================")
     logger.info("  🎉 PLANT DISEASE BENCHMARK PIPELINE COMPLETED SUCCESSFULLY!   ")
     logger.info("================================================================")

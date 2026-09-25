@@ -75,7 +75,8 @@ their provenance, coverage, grouping, and checksums with
 
 `data/raw/` currently contains 300 programmatically generated images: 20 examples in each of 15 classes. They exist only to exercise the pipeline quickly. They are not downloaded PlantVillage photographs and must never be described as such in the report.
 
-The generated `data/processed/split_indices.json` currently represents a 210/45/45 split of that synthetic data. Delete/regenerate the processed cache after installing the final dataset.
+The training loader does not discover classes or create random splits. It reads the
+checksum-verified manifests and class mapping tracked under `data/splits/`.
 
 ## Directory policy
 

@@ -301,7 +301,7 @@ def _read_manifest(path: Path) -> list[dict[str, str]]:
         return list(reader)
 
 
-def _validate_checksums(manifest_dir: Path) -> str:
+def validate_manifest_checksums(manifest_dir: Path) -> str:
     checksum_path = manifest_dir / "checksums.sha256"
     expected_names = set(GENERATED_FILENAMES) - {"checksums.sha256"}
     recorded: dict[str, str] = {}
@@ -331,7 +331,7 @@ def validate_grouped_split_manifests(
     manifest_dir: Path,
 ) -> dict[str, Any]:
     """Independently validate frozen manifests without regenerating them."""
-    bundle_checksum = _validate_checksums(manifest_dir)
+    bundle_checksum = validate_manifest_checksums(manifest_dir)
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     revision = str(lock["dataset"]["resolved_revision"])
     excluded_paths = _read_excluded_paths(exclusion_path, revision)

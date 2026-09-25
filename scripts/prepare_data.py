@@ -4,6 +4,7 @@ Run from the repository root:
     python scripts/prepare_data.py lock
     python scripts/prepare_data.py download
     python scripts/prepare_data.py validate
+    python scripts/prepare_data.py review-candidates
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from src.data.plantvillage_acquisition import (  # noqa: E402
     write_source_lock,
 )
 from src.data.plantvillage_validation import validate_plantvillage_dataset  # noqa: E402
+from src.data.split_review import export_perceptual_review_ledger  # noqa: E402
 
 DEFAULT_LOCK = PROJECT_ROOT / "data" / "plantvillage_source.lock.json"
 DEFAULT_DESTINATION = PROJECT_ROOT / "data" / "raw" / "plantvillage" / "color"
@@ -37,6 +39,7 @@ DEFAULT_PROVENANCE = (
 DEFAULT_VALIDATION_REPORT = (
     PROJECT_ROOT / "data" / "processed" / "plantvillage" / "validation_report.json"
 )
+DEFAULT_REVIEW_LEDGER = PROJECT_ROOT / "data" / "splits" / "perceptual_duplicate_review.csv"
 DEFAULT_CACHE = PROJECT_ROOT / ".cache" / "huggingface"
 
 
@@ -69,6 +72,18 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT)
     validate_parser.add_argument("--near-duplicate-distance", type=int, default=4)
     validate_parser.add_argument("--max-examples", type=int, default=100)
+
+    review_parser = subparsers.add_parser(
+        "review-candidates",
+        help="Export cross-split perceptual matches to a review ledger",
+    )
+    review_parser.add_argument("--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT)
+    review_parser.add_argument("--output-file", type=Path, default=DEFAULT_REVIEW_LEDGER)
+    review_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing ledger and discard any recorded decisions",
+    )
     return parser
 
 
@@ -128,6 +143,16 @@ def command_validate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def command_review_candidates(args: argparse.Namespace) -> None:
+    count = export_perceptual_review_ledger(
+        report_path=args.report_file,
+        output_path=args.output_file,
+        overwrite=args.overwrite,
+    )
+    print(f"Review candidates: {count}")
+    print(f"Review ledger: {args.output_file}")
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "lock":
@@ -136,6 +161,8 @@ def main() -> None:
         command_download(args)
     elif args.command == "validate":
         command_validate(args)
+    elif args.command == "review-candidates":
+        command_review_candidates(args)
 
 
 if __name__ == "__main__":

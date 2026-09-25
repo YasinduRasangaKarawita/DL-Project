@@ -4,6 +4,12 @@ Run from the repository root:
     python scripts/prepare_data.py lock
     python scripts/prepare_data.py download
     python scripts/prepare_data.py validate
+    python scripts/prepare_data.py review-candidates
+    python scripts/prepare_data.py validate-review
+    python scripts/prepare_data.py build-exclusions
+    python scripts/prepare_data.py validate-exclusions
+    python scripts/prepare_data.py build-manifests --validation-fraction 0.15 --seed 42
+    python scripts/prepare_data.py validate-manifests
 """
 
 from __future__ import annotations
@@ -27,6 +33,18 @@ from src.data.plantvillage_acquisition import (  # noqa: E402
     write_source_lock,
 )
 from src.data.plantvillage_validation import validate_plantvillage_dataset  # noqa: E402
+from src.data.split_exclusions import (  # noqa: E402
+    build_training_exclusion_ledger,
+    validate_training_exclusion_ledger,
+)
+from src.data.split_manifests import (  # noqa: E402
+    build_grouped_split_manifests,
+    validate_grouped_split_manifests,
+)
+from src.data.split_review import (  # noqa: E402
+    export_perceptual_review_ledger,
+    validate_perceptual_review_ledger,
+)
 
 DEFAULT_LOCK = PROJECT_ROOT / "data" / "plantvillage_source.lock.json"
 DEFAULT_DESTINATION = PROJECT_ROOT / "data" / "raw" / "plantvillage" / "color"
@@ -37,6 +55,8 @@ DEFAULT_PROVENANCE = (
 DEFAULT_VALIDATION_REPORT = (
     PROJECT_ROOT / "data" / "processed" / "plantvillage" / "validation_report.json"
 )
+DEFAULT_REVIEW_LEDGER = PROJECT_ROOT / "data" / "splits" / "perceptual_duplicate_review.csv"
+DEFAULT_EXCLUSION_LEDGER = PROJECT_ROOT / "data" / "splits" / "training_exclusions.csv"
 DEFAULT_CACHE = PROJECT_ROOT / ".cache" / "huggingface"
 
 
@@ -69,6 +89,106 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT)
     validate_parser.add_argument("--near-duplicate-distance", type=int, default=4)
     validate_parser.add_argument("--max-examples", type=int, default=100)
+
+    review_parser = subparsers.add_parser(
+        "review-candidates",
+        help="Export cross-split perceptual matches to a review ledger",
+    )
+    review_parser.add_argument("--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT)
+    review_parser.add_argument("--output-file", type=Path, default=DEFAULT_REVIEW_LEDGER)
+    review_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing ledger and discard any recorded decisions",
+    )
+
+    validate_review_parser = subparsers.add_parser(
+        "validate-review",
+        help="Verify that every perceptual candidate has a valid documented decision",
+    )
+    validate_review_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    validate_review_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+
+    build_exclusions_parser = subparsers.add_parser(
+        "build-exclusions",
+        help="Combine exact-duplicate and reviewed perceptual training exclusions",
+    )
+    build_exclusions_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    build_exclusions_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+    build_exclusions_parser.add_argument(
+        "--output-file", type=Path, default=DEFAULT_EXCLUSION_LEDGER
+    )
+    build_exclusions_parser.add_argument("--overwrite", action="store_true")
+
+    validate_exclusions_parser = subparsers.add_parser(
+        "validate-exclusions",
+        help="Verify the training-exclusion ledger against its reviewed inputs",
+    )
+    validate_exclusions_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    validate_exclusions_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+    validate_exclusions_parser.add_argument(
+        "--exclusion-file", type=Path, default=DEFAULT_EXCLUSION_LEDGER
+    )
+
+    build_manifests_parser = subparsers.add_parser(
+        "build-manifests",
+        help="Generate deterministic leaf-grouped train/validation/test manifests",
+    )
+    build_manifests_parser.add_argument(
+        "--validation-fraction",
+        type=float,
+        required=True,
+        help="Fraction of cleaned official training images targeted for validation",
+    )
+    build_manifests_parser.add_argument("--seed", type=int, default=42)
+    build_manifests_parser.add_argument("--lock-file", type=Path, default=DEFAULT_LOCK)
+    build_manifests_parser.add_argument("--metadata-dir", type=Path, default=DEFAULT_METADATA)
+    build_manifests_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    build_manifests_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+    build_manifests_parser.add_argument(
+        "--exclusion-file", type=Path, default=DEFAULT_EXCLUSION_LEDGER
+    )
+    build_manifests_parser.add_argument(
+        "--output-dir", type=Path, default=PROJECT_ROOT / "data" / "splits"
+    )
+    build_manifests_parser.add_argument("--overwrite", action="store_true")
+
+    validate_manifests_parser = subparsers.add_parser(
+        "validate-manifests",
+        help="Independently validate frozen manifests and their checksums",
+    )
+    validate_manifests_parser.add_argument("--lock-file", type=Path, default=DEFAULT_LOCK)
+    validate_manifests_parser.add_argument(
+        "--metadata-dir", type=Path, default=DEFAULT_METADATA
+    )
+    validate_manifests_parser.add_argument(
+        "--report-file", type=Path, default=DEFAULT_VALIDATION_REPORT
+    )
+    validate_manifests_parser.add_argument(
+        "--review-file", type=Path, default=DEFAULT_REVIEW_LEDGER
+    )
+    validate_manifests_parser.add_argument(
+        "--exclusion-file", type=Path, default=DEFAULT_EXCLUSION_LEDGER
+    )
+    validate_manifests_parser.add_argument(
+        "--manifest-dir", type=Path, default=PROJECT_ROOT / "data" / "splits"
+    )
     return parser
 
 
@@ -128,6 +248,90 @@ def command_validate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def command_review_candidates(args: argparse.Namespace) -> None:
+    count = export_perceptual_review_ledger(
+        report_path=args.report_file,
+        output_path=args.output_file,
+        overwrite=args.overwrite,
+    )
+    print(f"Review candidates: {count}")
+    print(f"Review ledger: {args.output_file}")
+
+
+def command_validate_review(args: argparse.Namespace) -> None:
+    counts = validate_perceptual_review_ledger(args.report_file, args.review_file)
+    print(f"Validated review decisions: {sum(counts.values())}")
+    for decision, count in counts.items():
+        print(f"{decision}: {count}")
+
+
+def _print_exclusion_summary(summary: dict[str, int]) -> None:
+    print(f"Exclusion evidence records: {summary['records']}")
+    print(f"Unique training images excluded: {summary['unique_training_images']}")
+    print(f"Exact-duplicate records: {summary['exact_duplicate_cross_split']}")
+    print(f"Perceptual-review records: {summary['perceptual_related_cross_split']}")
+
+
+def command_build_exclusions(args: argparse.Namespace) -> None:
+    summary = build_training_exclusion_ledger(
+        args.report_file,
+        args.review_file,
+        args.output_file,
+        overwrite=args.overwrite,
+    )
+    _print_exclusion_summary(summary)
+    print(f"Training-exclusion ledger: {args.output_file}")
+
+
+def command_validate_exclusions(args: argparse.Namespace) -> None:
+    summary = validate_training_exclusion_ledger(
+        args.report_file,
+        args.review_file,
+        args.exclusion_file,
+    )
+    _print_exclusion_summary(summary)
+
+
+def command_build_manifests(args: argparse.Namespace) -> None:
+    validate_training_exclusion_ledger(
+        args.report_file,
+        args.review_file,
+        args.exclusion_file,
+    )
+    metadata = build_grouped_split_manifests(
+        args.metadata_dir,
+        args.lock_file,
+        args.exclusion_file,
+        args.output_dir,
+        validation_fraction=args.validation_fraction,
+        seed=args.seed,
+        overwrite=args.overwrite,
+    )
+    print(f"Split manifests: {args.output_dir}")
+    print(f"Train images: {metadata['split_counts']['train']}")
+    print(f"Validation images: {metadata['split_counts']['validation']}")
+    print(f"Test images: {metadata['split_counts']['test']}")
+
+
+def command_validate_manifests(args: argparse.Namespace) -> None:
+    validate_training_exclusion_ledger(
+        args.report_file,
+        args.review_file,
+        args.exclusion_file,
+    )
+    summary = validate_grouped_split_manifests(
+        args.metadata_dir,
+        args.lock_file,
+        args.exclusion_file,
+        args.manifest_dir,
+    )
+    print(f"Validated manifest classes: {summary['classes']}")
+    for split, count in summary["split_counts"].items():
+        print(f"{split.capitalize()} images: {count}")
+    print(f"Excluded training images: {summary['excluded_unique_training_images']}")
+    print(f"Manifest bundle SHA-256: {summary['manifest_bundle_sha256']}")
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "lock":
@@ -136,6 +340,18 @@ def main() -> None:
         command_download(args)
     elif args.command == "validate":
         command_validate(args)
+    elif args.command == "review-candidates":
+        command_review_candidates(args)
+    elif args.command == "validate-review":
+        command_validate_review(args)
+    elif args.command == "build-exclusions":
+        command_build_exclusions(args)
+    elif args.command == "validate-exclusions":
+        command_validate_exclusions(args)
+    elif args.command == "build-manifests":
+        command_build_manifests(args)
+    elif args.command == "validate-manifests":
+        command_validate_manifests(args)
 
 
 if __name__ == "__main__":

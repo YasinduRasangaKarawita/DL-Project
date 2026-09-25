@@ -2,17 +2,23 @@
 
 This document is the pre-training checklist. The existing pipeline is suitable for a smoke test, not yet for final assignment results.
 
+## Completed data foundations
+
+- The real PlantVillage color dataset has an immutable, checksum-verified acquisition path.
+- Human-reviewed exclusions and immutable, leaf-grouped train/validation/test manifests are
+  committed and independently validated.
+- The data loader consumes those checksum-verified manifests rather than discovering
+  classes or creating a random split at runtime.
+
 ## Required fixes before final runs
 
-1. Replace the synthetic generator with a real, versioned public-dataset acquisition path.
-2. Use immutable, leaf-grouped split manifests and validate that no group or near-duplicate crosses partitions.
-3. Make every declared configuration field authoritative; remove hard-coded pretrained, freeze, unfreeze, optimizer, and scheduler values.
-4. Re-create callbacks after replacing the optimizer during fine-tuning so the scheduler controls the new optimizer.
-5. Prevent frozen backbone BatchNorm statistics from changing during feature extraction.
-6. Restore the best phase-one checkpoint before fine-tuning rather than continuing from the final phase-one epoch.
-7. Save complete resumable checkpoints and self-describing inference checkpoints.
-8. Add warm-up, synchronization, repeated batches, and hardware metadata to performance measurement.
-9. Make the app fail safely when weights or metadata are missing; add input/OOD handling and calibrated confidence.
+1. Make every declared configuration field authoritative; remove hard-coded pretrained, freeze, unfreeze, optimizer, and scheduler values.
+2. Re-create callbacks after replacing the optimizer during fine-tuning so the scheduler controls the new optimizer.
+3. Prevent frozen backbone BatchNorm statistics from changing during feature extraction.
+4. Restore the best phase-one checkpoint before fine-tuning rather than continuing from the final phase-one epoch.
+5. Save complete resumable checkpoints and self-describing inference checkpoints.
+6. Add warm-up, synchronization, repeated batches, and hardware metadata to performance measurement.
+7. Make the app fail safely when weights or metadata are missing; add input/OOD handling and calibrated confidence.
 
 ## Dataset controls
 
@@ -41,4 +47,3 @@ For each model and seed, preserve:
 - representative correct, incorrect, low-confidence, and domain-shift examples.
 
 Run seeds `42`, `123`, and `2026` if feasible and report mean ± standard deviation. Perform model selection using validation data, then evaluate each frozen selected model on the unseen test set once.
-

@@ -19,6 +19,7 @@ The project is being developed for the SE4050 deep-learning assignment. The goal
 | Code for four architectures | Present |
 | Training/evaluation pipeline | Present; requires the fixes listed in `docs/EXPERIMENT_PROTOCOL.md` |
 | Real public dataset | Reproducible acquisition implemented; local files remain ignored |
+| Frozen dataset splits | Present; grouped 37,037 train / 6,540 validation / 10,709 test |
 | Final trained models | Not yet produced |
 | Final report-ready results | Not yet produced |
 | Streamlit demonstration app | Prototype present |
@@ -27,7 +28,9 @@ The project is being developed for the SE4050 deep-learning assignment. The goal
 
 Use the full, unaugmented color PlantVillage dataset only if it was not already used in a course lab/tutorial. Record the exact source, version/commit, license, download date, and checksum in `data/README.md`. Never commit the image files to Git.
 
-To reduce leakage, prefer the dataset's leaf-grouped split where available. Create validation data from the official training partition while preserving leaf groups, and keep the test partition locked until the final model selection is complete.
+The committed manifests preserve the dataset's leaf groups, create validation data only
+from the cleaned official training partition, and keep the official test partition locked
+until final model selection is complete.
 
 ## Quick start
 
@@ -60,10 +63,21 @@ Validate the acquired images and locked official split:
 python scripts/prepare_data.py validate
 ```
 
-The committed source lock at `data/plantvillage_source.lock.json` makes this command fetch
-the reviewed revision rather than a moving `main`. Only the Data Lead should deliberately
-refresh that lock. Do not run final training until the grouped validation manifest is
-reviewed and the `training-v1.0` tag is created.
+Validate the reviewed exclusions and frozen split bundle before training:
+
+```powershell
+python scripts/prepare_data.py validate-review
+python scripts/prepare_data.py validate-exclusions
+python scripts/prepare_data.py validate-manifests
+```
+
+The committed source lock at `data/plantvillage_source.lock.json` makes the download command
+fetch the reviewed revision rather than a moving `main`. Only the Data Lead should
+deliberately refresh that lock. The frozen split contains 37,037 training, 6,540 validation,
+and 10,709 test images across 38 classes. Its bundle checksum is
+`19ca82ed9a1832dbeca228bbcb35274cd3362758e918818e64587f4d0bd1306c`.
+Do not run final training until the remaining pipeline fixes are complete and the reviewed
+training commit is tagged `training-v1.0`.
 
 Run the Streamlit prototype:
 

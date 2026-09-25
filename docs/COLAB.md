@@ -42,9 +42,26 @@ Colab's `/content` storage disappears when the runtime ends. Save `last_resume.p
 
 ## 3. Stage the dataset locally
 
-Keep the archived dataset in Drive, but copy and extract it to `/content/data` at the beginning of a session. Reading thousands of small files directly from mounted Drive is slow. Never commit the archive or extracted images to GitHub.
+Keep any cached archive in Drive, but stage the extracted files inside the cloned repository
+at `data/raw/plantvillage/color` at the beginning of a session. Reading thousands of small
+files directly from mounted Drive is slow. Never commit the archive or extracted images to
+GitHub. The reproducible option is:
 
-Verify the dataset version/checksum and the final split-manifest checksum before training.
+```bash
+python scripts/prepare_data.py download
+python scripts/prepare_data.py validate
+```
+
+The committed manifests remain at `data/splits/`; do not copy, regenerate, or randomly
+resplit them. Verify the frozen bundle before training:
+
+```bash
+python scripts/prepare_data.py validate-manifests
+```
+
+The expected frozen counts are 37,037 train, 6,540 validation, and 10,709 test, and the
+manifest-bundle SHA-256 is
+`19ca82ed9a1832dbeca228bbcb35274cd3362758e918818e64587f4d0bd1306c`.
 
 ## 4. Train and resume
 
@@ -55,7 +72,7 @@ python scripts/train.py \
   --config configs/config.yaml \
   --model efficientnet_b0 \
   --seed 42 \
-  --data-root /content/data/plant_village \
+  --data-root data/raw/plantvillage/color \
   --output-dir /content/drive/MyDrive/SE4050_PlantDisease/checkpoints
 ```
 
@@ -78,4 +95,3 @@ Keep intermediate and resumable checkpoints in Drive. For the four final inferen
 5. Link the release and manifest from the root README.
 
 Ordinary GitHub repositories reject files larger than 100 MiB, and binary checkpoints make history expensive. GitHub Releases are preferred here; Git LFS is an acceptable alternative only if the team understands its storage and bandwidth limits.
-

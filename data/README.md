@@ -17,10 +17,12 @@ written to the ignored file `data/processed/plantvillage/provenance.json`.
 | Archive SHA-256 | Locked upstream hash and locally verified digest |
 | Expected images | 54,305 |
 | Expected classes | 38 crop–disease pairs |
-| Exclusions/repairs | TBD |
+| Exclusions/repairs | 19 unique official-training images excluded for cross-boundary leakage risk; source files remain unchanged |
 | Source split | Leaf-grouped 43,596 train / 10,709 locked test |
-| Validation split | To be created only from the source training partition, grouped by `leaf_id` |
-| Split manifest SHA-256 | TBD |
+| Validation split | 6,540 images (15% target from cleaned official training, seed 42, grouped by physical leaf) |
+| Final train/test counts | 37,037 train / 10,709 locked test |
+| Excluded training images | 19 leakage-risk images with evidence in `data/splits/training_exclusions.csv` |
+| Manifest bundle SHA-256 | `19ca82ed9a1832dbeca228bbcb35274cd3362758e918818e64587f4d0bd1306c` (`checksums.sha256`) |
 
 The original paper reports 54,306 images, while this maintained color distribution contains
 54,305. Results and documentation in this repository must use the observed count from the
@@ -65,15 +67,20 @@ The reviewed findings for the locked source are documented in
 `docs/DATA_VALIDATION.md`. In particular, five byte-identical groups cross the official
 train/test boundary, so the official lists must not be used unchanged for final training.
 
-Create the final grouped training/validation manifests from the official training
-partition only after this validation report has been reviewed. That work belongs in the
-separate frozen-manifest pull request.
+The final grouped manifests and class mapping are tracked under `data/splits/`. Validate
+their provenance, coverage, grouping, and checksums with
+`python scripts/prepare_data.py validate-manifests` before training.
 
 ## Current local development data
 
-`data/raw/` currently contains 300 programmatically generated images: 20 examples in each of 15 classes. They exist only to exercise the pipeline quickly. They are not downloaded PlantVillage photographs and must never be described as such in the report.
+The legacy class folders directly under `data/raw/` contain 300 programmatically generated
+images: 20 examples in each of 15 classes. They exist only to exercise the legacy smoke
+pipeline. They are not downloaded PlantVillage photographs and must never be described as
+such in the report. The locked real dataset lives separately at
+`data/raw/plantvillage/color/` after acquisition.
 
-The generated `data/processed/split_indices.json` currently represents a 210/45/45 split of that synthetic data. Delete/regenerate the processed cache after installing the final dataset.
+The training loader does not discover classes or create random splits. It reads the
+checksum-verified manifests and class mapping tracked under `data/splits/`.
 
 ## Directory policy
 

@@ -61,14 +61,24 @@ The five byte-identical train/test duplicate groups are:
 | `Tomato___Late_blight` | `GHLB_PS Leaf 23.7 Day 13` | 1 test, 1 train |
 | `Tomato___Late_blight` | `GHLB2 Leaf 8999` | 1 test, 1 train |
 
-## Decision for the next data pull request
+## Applied split decision
 
-The official split files are useful source partitions, but they are not ready to use
-unchanged for final experiments because exact image content crosses the boundary. Do not
-delete or edit the downloaded source files.
+The official split files remain the source partitions, but they are not used unchanged
+because exact image content crosses the train/test boundary. The downloaded source files
+were not deleted or edited.
 
-When freezing project manifests, keep the official test copy fixed and exclude each
-byte-identical training copy. Review the 41 cross-split perceptual candidates, merge
-confirmed related images into the same grouping constraint where possible, and record any
-additional exclusions with reasons. Create validation only from the cleaned official
-training partition and keep every resolved leaf group intact.
+The completed review classified 15 cross-split perceptual candidates as related and 26 as
+false positives. Those 15 evidence records identify 14 unique training images; together
+with the five byte-identical training copies, the exclusion ledger removes 19 unique
+training images while preserving every official test image.
+
+The frozen manifests create validation only from the cleaned official training partition
+and keep every resolved leaf group intact. With a 15% validation target and seed 42, they
+contain 37,037 train, 6,540 validation, and 10,709 test images across 38 classes. Review
+evidence is stored in `data/splits/perceptual_duplicate_review.csv`, exclusion evidence in
+`data/splits/training_exclusions.csv`, and split metadata in
+`data/splits/split_metadata.json`. Validate the complete bundle with:
+
+```powershell
+python scripts/prepare_data.py validate-manifests
+```

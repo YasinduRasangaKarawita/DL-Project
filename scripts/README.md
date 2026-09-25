@@ -4,7 +4,8 @@ This directory is reserved for thin command-line entry points that call reusable
 
 Implemented interface:
 
-- `prepare_data.py`: acquire and validate the pinned PlantVillage source dataset;
+- `prepare_data.py`: lock, acquire, audit, review, and validate the pinned PlantVillage
+  source and frozen split manifests;
 
 Planned interfaces:
 
@@ -54,5 +55,19 @@ It writes the machine-readable report to the ignored local path
 
 Perceptual matches are review candidates rather than proof of duplication. The command
 fails for objective integrity or leakage errors and reports incomplete or historically
-inconsistent upstream leaf metadata as warnings. Do not create the training/validation
-manifests in this validation pull request.
+inconsistent upstream leaf metadata as warnings.
+
+## Frozen split verification
+
+The reviewed ledgers and manifests are already committed under `data/splits/`. Verify them
+without modifying or regenerating any file:
+
+```powershell
+python scripts/prepare_data.py validate-review
+python scripts/prepare_data.py validate-exclusions
+python scripts/prepare_data.py validate-manifests
+```
+
+For the approved 15% grouped validation split, the frozen counts are 37,037 train, 6,540
+validation, and 10,709 test across 38 classes. See `data/splits/README.md` for the generation
+command, review-decision meanings, and bundle checksum.

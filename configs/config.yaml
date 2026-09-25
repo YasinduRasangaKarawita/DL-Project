@@ -6,14 +6,12 @@ project:
   device: "auto" # 'auto', 'cuda', or 'cpu'
 
 dataset:
-  raw_dir: "data/raw"
+  raw_dir: "data/raw/plantvillage/color"
+  manifest_dir: "data/splits"
   processed_dir: "data/processed"
   dataset_name: "PlantVillage"
   image_size: [224, 224]
   channels: 3
-  train_split: 0.70
-  val_split: 0.15
-  test_split: 0.15
   num_workers: 0 # Windows safe
   benchmark_samples_per_class: 100
 

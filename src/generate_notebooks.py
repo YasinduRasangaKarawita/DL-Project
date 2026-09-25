@@ -1,5 +1,5 @@
-import os
 import json
+import os
 
 notebooks_dir = "notebooks"
 os.makedirs(notebooks_dir, exist_ok=True)
@@ -40,36 +40,44 @@ def code_cell(code):
 
 # 1. Dataset Exploration
 nb1 = make_notebook([
-    md_cell("# 🌿 01. PlantVillage Dataset Exploration & Quality Audit\nThis notebook performs Exploratory Data Analysis (EDA) on plant leaf images across disease and healthy categories."),
-    code_cell("""import os, sys
+    md_cell("# 🌿 01. PlantVillage Dataset Exploration & Quality Audit\nValidates the frozen PlantVillage split bundle, reports its reviewed partition counts, and generates exploratory figures from the acquired real images."),
+    code_cell("""import json, subprocess, sys
+from pathlib import Path
+
 sys.path.append('..')
-from src.data.download_data import prepare_dataset
-from src.data.validate_data import validate_dataset_integrity
 from src.evaluation.dataset_analysis import generate_dataset_figures
 
-# Ensure dataset exists and audit integrity
-classes = prepare_dataset(raw_dir='../data/raw')
-report = validate_dataset_integrity(raw_dir='../data/raw', report_path='../results/experiments/data_validation_report.json')
-print(f"Total valid images: {report['valid_images']} across {report['total_classes']} classes.")"""),
+project_root = Path('..').resolve()
+subprocess.run(
+    [sys.executable, 'scripts/prepare_data.py', 'validate-manifests'],
+    cwd=project_root,
+    check=True,
+)
+metadata = json.loads(
+    (project_root / 'data/splits/split_metadata.json').read_text(encoding='utf-8')
+)
+print('Frozen split counts:', metadata['split_counts'])"""),
     code_cell("""# Generate and display EDA visualizations
-generate_dataset_figures(raw_dir='../data/raw', figures_dir='../figures/dataset')
+generate_dataset_figures(
+    raw_dir='../data/raw/plantvillage/color',
+    figures_dir='../figures/dataset',
+)
 print("EDA figures successfully generated in figures/dataset/")""")
 ])
 
 # 2. Preprocessing
 nb2 = make_notebook([
-    md_cell("# 🔄 02. Preprocessing, Data Augmentation & Stratified Splitting\nDemonstrates data leakage prevention, stratified 70/15/15 train/val/test splitting, and torchvision transform pipelines."),
+    md_cell("# 🔄 02. Preprocessing, Data Augmentation & Frozen Splits\nLoads the checksum-verified grouped train/validation/test manifests and demonstrates the torchvision transform pipelines."),
     code_cell("""import os, sys
 sys.path.append('..')
 from src.data.dataset_loader import get_dataloaders
 from src.data.preprocessing import get_transforms
 
 train_loader, val_loader, test_loader, classes, class_to_idx = get_dataloaders(
-    raw_dir='../data/raw',
-    processed_dir='../data/processed',
+    raw_dir='../data/raw/plantvillage/color',
+    manifest_dir='../data/splits',
     batch_size=32,
     image_size=(224, 224),
-    train_split=0.70, val_split=0.15, test_split=0.15,
     random_seed=42
 )
 print(f"Train batches: {len(train_loader)} | Val batches: {len(val_loader)} | Test batches: {len(test_loader)}")
@@ -79,12 +87,15 @@ print("Class categories:", classes)""")
 # 3. Custom CNN
 nb3 = make_notebook([
     md_cell("# 🤖 03. Custom CNN Baseline Model\nImplements 3-block convolutional baseline (Conv2D -> BatchNorm -> ReLU -> MaxPool) with Global Average Pooling."),
-    code_cell("""import os, sys, torch
+    code_cell("""import json, os, sys, torch
+from pathlib import Path
+
 sys.path.append('..')
 from src.models.custom_cnn import CustomCNN
 from src.utils.helpers import count_parameters
 
-model = CustomCNN(num_classes=15)
+mapping = json.loads(Path('../data/splits/class_mapping.json').read_text(encoding='utf-8'))
+model = CustomCNN(num_classes=len(mapping['classes']))
 total_p, train_p = count_parameters(model)
 print(f"Custom CNN Total Parameters: {total_p:,} | Trainable: {train_p:,}")
 
@@ -96,12 +107,15 @@ print("Output logits shape:", out.shape)""")
 # 4. ResNet50
 nb4 = make_notebook([
     md_cell("# 🧠 04. ResNet50 Transfer Learning & Fine-Tuning\nTransfer learning with residual skip-connections. Evaluates frozen feature extraction vs fine-tuning layer4."),
-    code_cell("""import os, sys, torch
+    code_cell("""import json, os, sys, torch
+from pathlib import Path
+
 sys.path.append('..')
 from src.models.resnet50 import get_resnet50, unfreeze_resnet50_layers
 from src.utils.helpers import count_parameters
 
-model = get_resnet50(num_classes=15, pretrained=True, freeze_base=True)
+mapping = json.loads(Path('../data/splits/class_mapping.json').read_text(encoding='utf-8'))
+model = get_resnet50(num_classes=len(mapping['classes']), pretrained=True, freeze_base=True)
 total_p, train_p = count_parameters(model)
 print(f"Phase 1 (Frozen) - Total: {total_p:,} | Trainable: {train_p:,}")
 
@@ -113,12 +127,15 @@ print(f"Phase 2 (Fine-tuning layer4) - Total: {total_p:,} | Trainable: {train_p:
 # 5. EfficientNetB0
 nb5 = make_notebook([
     md_cell("# ⚡ 05. EfficientNetB0 Compound Scaling\nEvaluates EfficientNetB0 balance between computational depth, width, resolution scaling and classification accuracy."),
-    code_cell("""import os, sys, torch
+    code_cell("""import json, os, sys, torch
+from pathlib import Path
+
 sys.path.append('..')
 from src.models.efficientnet_b0 import get_efficientnet_b0, unfreeze_efficientnet_layers
 from src.utils.helpers import count_parameters
 
-model = get_efficientnet_b0(num_classes=15, pretrained=True, freeze_base=True)
+mapping = json.loads(Path('../data/splits/class_mapping.json').read_text(encoding='utf-8'))
+model = get_efficientnet_b0(num_classes=len(mapping['classes']), pretrained=True, freeze_base=True)
 total_p, train_p = count_parameters(model)
 print(f"EfficientNetB0 - Total: {total_p:,} | Trainable: {train_p:,}")""")
 ])
@@ -126,12 +143,15 @@ print(f"EfficientNetB0 - Total: {total_p:,} | Trainable: {train_p:,}")""")
 # 6. MobileNetV3
 nb6 = make_notebook([
     md_cell("# 📱 06. MobileNetV3 Lightweight Edge Model\nEvaluates inverted residual bottlenecks for resource-constrained edge / mobile deployment."),
-    code_cell("""import os, sys, torch
+    code_cell("""import json, os, sys, torch
+from pathlib import Path
+
 sys.path.append('..')
 from src.models.mobilenet_v3 import get_mobilenet_v3
 from src.utils.helpers import count_parameters
 
-model = get_mobilenet_v3(num_classes=15, pretrained=True, freeze_base=True)
+mapping = json.loads(Path('../data/splits/class_mapping.json').read_text(encoding='utf-8'))
+model = get_mobilenet_v3(num_classes=len(mapping['classes']), pretrained=True, freeze_base=True)
 total_p, train_p = count_parameters(model)
 print(f"MobileNetV3 - Total: {total_p:,} | Trainable: {train_p:,}")""")
 ])

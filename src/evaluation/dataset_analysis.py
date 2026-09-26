@@ -1,6 +1,9 @@
 import csv
+import hashlib
 import json
+import math
 import os
+import textwrap
 from collections import Counter
 from pathlib import Path, PurePosixPath
 from statistics import mean, median
@@ -237,6 +240,113 @@ def analyze_image_dimensions(
             for (width, height), count in dimension_frequencies.most_common()
         ],
     }
+
+
+def select_sample_images(
+    raw_dir: str | Path,
+    manifest_dir: str | Path = "data/splits",
+    split: str = "train",
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Select one deterministic, non-cherry-picked manifest image per class."""
+    if split not in {"train", "validation", "test"}:
+        raise ValueError("Sample split must be train, validation, or test")
+
+    raw_path = Path(raw_dir).resolve()
+    manifest_path = Path(manifest_dir)
+    validate_manifest_checksums(manifest_path)
+    class_mapping = json.loads(
+        (manifest_path / "class_mapping.json").read_text(encoding="utf-8")
+    )
+    classes = class_mapping["classes"]
+    paths_by_class: dict[str, list[str]] = {class_name: [] for class_name in classes}
+
+    with (manifest_path / f"{split}.csv").open(
+        encoding="utf-8", newline=""
+    ) as file_handle:
+        reader = csv.DictReader(file_handle)
+        if tuple(reader.fieldnames or ()) != MANIFEST_FIELDNAMES:
+            raise ValueError(f"Manifest columns do not match the schema: {split}.csv")
+        for row in reader:
+            class_name = row["class_name"]
+            if class_name not in paths_by_class:
+                raise ValueError(f"Unknown class in {split} manifest: {class_name}")
+            paths_by_class[class_name].append(row["relative_path"])
+
+    samples = []
+    for class_name in classes:
+        candidates = paths_by_class[class_name]
+        if not candidates:
+            raise ValueError(f"No {split} images are available for class {class_name}")
+        relative_path = min(
+            candidates,
+            key=lambda value: hashlib.sha256(
+                f"{seed}\0{class_name}\0{value}".encode("utf-8")
+            ).hexdigest(),
+        )
+        relative = PurePosixPath(relative_path)
+        if relative.is_absolute() or ".." in relative.parts or len(relative.parts) != 2:
+            raise ValueError(f"Unsafe or malformed manifest path: {relative}")
+        image_path = (raw_path / Path(*relative.parts)).resolve()
+        if not image_path.is_relative_to(raw_path):
+            raise ValueError(f"Manifest image escapes the dataset directory: {relative}")
+        if not image_path.is_file():
+            raise FileNotFoundError(f"Manifest image does not exist: {image_path}")
+        samples.append(
+            {
+                "class_name": class_name,
+                "relative_path": relative.as_posix(),
+                "image_path": image_path,
+            }
+        )
+
+    return {"split": split, "seed": seed, "samples": samples}
+
+
+def plot_sample_grid(
+    selection: dict[str, Any],
+    output_path: str | Path,
+    columns: int = 5,
+) -> Path:
+    """Save a grid containing one selected image for every class."""
+    if columns < 1:
+        raise ValueError("Grid columns must be positive")
+    samples = selection["samples"]
+    if not samples:
+        raise ValueError("At least one sample is required to create a grid")
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    rows = math.ceil(len(samples) / columns)
+    fig, axes = plt.subplots(
+        rows,
+        columns,
+        figsize=(columns * 2.5, rows * 2.5),
+        squeeze=False,
+    )
+    try:
+        for axis, sample in zip(axes.flat, samples):
+            with Image.open(sample["image_path"]) as image:
+                axis.imshow(image.convert("RGB"))
+            label = sample["class_name"].replace("___", " — ").replace("_", " ")
+            axis.set_title(textwrap.fill(label, width=26), fontsize=8)
+            axis.axis("off")
+
+        for axis in list(axes.flat)[len(samples):]:
+            axis.axis("off")
+
+        fig.suptitle(
+            f'Deterministic {selection["split"].title()} Sample per Class '
+            f'(seed {selection["seed"]})',
+            fontsize=14,
+            weight="bold",
+        )
+        fig.tight_layout(rect=(0, 0, 1, 0.98))
+        fig.savefig(output, dpi=120, bbox_inches="tight")
+    finally:
+        plt.close(fig)
+
+    return output
 
 
 def generate_dataset_figures(

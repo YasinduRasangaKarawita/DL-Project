@@ -10,6 +10,8 @@ from src.evaluation.dataset_analysis import (
     analyze_class_distribution,
     analyze_image_dimensions,
     plot_class_distribution,
+    plot_sample_grid,
+    select_sample_images,
     summarize_frozen_splits,
 )
 
@@ -147,3 +149,21 @@ def test_analyzes_manifest_image_dimensions(tmp_path):
         "square": 1,
     }
     assert len(analysis["records"]) == 3
+
+
+def test_selects_and_plots_manifest_sample_grid(tmp_path):
+    raw_dir, manifest_dir = _write_dimension_fixture(tmp_path)
+    selection = select_sample_images(raw_dir, manifest_dir, split="train", seed=42)
+
+    assert selection["split"] == "train"
+    assert selection["seed"] == 42
+    assert len(selection["samples"]) == 1
+    assert selection["samples"][0]["relative_path"] == "Plant___healthy/train.JPG"
+
+    output_path = tmp_path / "sample_grid.png"
+    result = plot_sample_grid(selection, output_path)
+
+    assert result == output_path
+    assert output_path.stat().st_size > 0
+    with Image.open(output_path) as image:
+        assert image.format == "PNG"

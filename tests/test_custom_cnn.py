@@ -60,6 +60,35 @@ def test_build_custom_cnn_uses_experiment_config():
     assert model.classifier[4].out_features == 38
 
 
+def test_custom_cnn_completes_one_training_step():
+    torch.manual_seed(42)
+    model = CustomCNN(
+        num_classes=4,
+        conv_channels=[4, 8, 16],
+        dense_units=8,
+        dropout_rate=0.1,
+    )
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    criterion = nn.CrossEntropyLoss()
+    inputs = torch.randn(4, 3, 32, 32)
+    targets = torch.tensor([0, 1, 2, 3])
+    output_weights_before = model.classifier[-1].weight.detach().clone()
+
+    optimizer.zero_grad()
+    logits = model(inputs)
+    loss = criterion(logits, targets)
+    loss.backward()
+
+    gradients = [parameter.grad for parameter in model.parameters() if parameter.requires_grad]
+    assert torch.isfinite(loss)
+    assert all(gradient is not None for gradient in gradients)
+    assert all(torch.isfinite(gradient).all() for gradient in gradients)
+
+    optimizer.step()
+
+    assert not torch.equal(output_weights_before, model.classifier[-1].weight)
+
+
 @pytest.mark.parametrize(
     ("model_kwargs", "expected_message"),
     [

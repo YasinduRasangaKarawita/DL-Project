@@ -1,6 +1,8 @@
+import csv
 import json
 import os
-from pathlib import Path
+from collections import Counter
+from pathlib import Path, PurePosixPath
 from statistics import mean, median
 from typing import Any
 
@@ -11,7 +13,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
 
-from src.data.split_manifests import validate_manifest_checksums
+from src.data.split_manifests import MANIFEST_FIELDNAMES, validate_manifest_checksums
 
 
 def summarize_frozen_splits(
@@ -140,6 +142,101 @@ def plot_class_distribution(
         plt.close(fig)
 
     return output
+
+
+def analyze_image_dimensions(
+    raw_dir: str | Path,
+    manifest_dir: str | Path = "data/splits",
+    splits: tuple[str, ...] = ("train", "validation", "test"),
+) -> dict[str, Any]:
+    """Inspect image headers referenced by the frozen manifests and summarize dimensions."""
+    raw_path = Path(raw_dir).resolve()
+    manifest_path = Path(manifest_dir)
+    validate_manifest_checksums(manifest_path)
+
+    allowed_splits = {"train", "validation", "test"}
+    if not splits or set(splits) - allowed_splits:
+        expected = ", ".join(sorted(allowed_splits))
+        raise ValueError(f"Splits must contain one or more of: {expected}")
+
+    records: list[dict[str, Any]] = []
+    dimension_frequencies: Counter[tuple[int, int]] = Counter()
+    orientation_counts: Counter[str] = Counter()
+
+    for split in splits:
+        with (manifest_path / f"{split}.csv").open(
+            encoding="utf-8", newline=""
+        ) as file_handle:
+            reader = csv.DictReader(file_handle)
+            if tuple(reader.fieldnames or ()) != MANIFEST_FIELDNAMES:
+                raise ValueError(f"Manifest columns do not match the schema: {split}.csv")
+
+            for row in reader:
+                relative = PurePosixPath(row["relative_path"])
+                if relative.is_absolute() or ".." in relative.parts or len(relative.parts) != 2:
+                    raise ValueError(f"Unsafe or malformed manifest path: {relative}")
+
+                image_path = raw_path / Path(*relative.parts)
+                if not image_path.is_file():
+                    raise FileNotFoundError(f"Manifest image does not exist: {image_path}")
+
+                with Image.open(image_path) as image:
+                    width, height = image.size
+                aspect_ratio = width / height
+                orientation = "square" if width == height else "landscape" if width > height else "portrait"
+
+                records.append(
+                    {
+                        "split": split,
+                        "class_name": row["class_name"],
+                        "relative_path": relative.as_posix(),
+                        "width": width,
+                        "height": height,
+                        "aspect_ratio": aspect_ratio,
+                        "orientation": orientation,
+                    }
+                )
+                dimension_frequencies[(width, height)] += 1
+                orientation_counts[orientation] += 1
+
+    if not records:
+        raise ValueError("No images were found in the requested manifest splits")
+
+    widths = [record["width"] for record in records]
+    heights = [record["height"] for record in records]
+    aspect_ratios = [record["aspect_ratio"] for record in records]
+
+    return {
+        "splits": list(splits),
+        "image_count": len(records),
+        "records": records,
+        "width": {
+            "minimum": min(widths),
+            "maximum": max(widths),
+            "mean": mean(widths),
+            "median": median(widths),
+        },
+        "height": {
+            "minimum": min(heights),
+            "maximum": max(heights),
+            "mean": mean(heights),
+            "median": median(heights),
+        },
+        "aspect_ratio": {
+            "minimum": min(aspect_ratios),
+            "maximum": max(aspect_ratios),
+            "mean": mean(aspect_ratios),
+            "median": median(aspect_ratios),
+        },
+        "orientation_counts": {
+            orientation: orientation_counts.get(orientation, 0)
+            for orientation in ("landscape", "portrait", "square")
+        },
+        "dimension_frequencies": [
+            {"width": width, "height": height, "count": count}
+            for (width, height), count in dimension_frequencies.most_common()
+        ],
+    }
 
 
 def generate_dataset_figures(

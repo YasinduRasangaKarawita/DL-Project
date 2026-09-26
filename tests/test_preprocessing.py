@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import torch
 from PIL import Image
 from torchvision import transforms
 
@@ -44,6 +45,60 @@ def test_zoom_augmentation_is_training_only():
         for transform in transforms_dict["val"].transforms
     )
     assert transforms_dict["val"] is transforms_dict["test"]
+
+
+def test_all_random_augmentations_are_training_only():
+    transforms_dict = get_transforms()
+    random_transform_types = (
+        transforms.RandomHorizontalFlip,
+        transforms.RandomRotation,
+        transforms.RandomAffine,
+        transforms.ColorJitter,
+    )
+
+    for transform_type in random_transform_types:
+        assert any(
+            isinstance(transform, transform_type)
+            for transform in transforms_dict["train"].transforms
+        )
+        assert not any(
+            isinstance(transform, transform_type)
+            for transform in transforms_dict["val"].transforms
+        )
+        assert not any(
+            isinstance(transform, transform_type)
+            for transform in transforms_dict["test"].transforms
+        )
+
+
+def test_validation_and_test_transforms_are_deterministic():
+    transforms_dict = get_transforms(image_size=(32, 32))
+    pixel_values = np.arange(48 * 64 * 3, dtype=np.uint8).reshape(48, 64, 3)
+    image = Image.fromarray(pixel_values, mode="RGB")
+
+    first_validation = transforms_dict["val"](image)
+    second_validation = transforms_dict["val"](image)
+    test_result = transforms_dict["test"](image)
+
+    assert torch.equal(first_validation, second_validation)
+    assert torch.equal(first_validation, test_result)
+
+
+def test_custom_normalization_is_applied():
+    transforms_dict = get_transforms(
+        image_size=(16, 16),
+        augmentation_config={
+            "normalization": {
+                "mean": [0.5, 0.5, 0.5],
+                "std": [0.5, 0.5, 0.5],
+            }
+        },
+    )
+    white_image = Image.new("RGB", (16, 16), color=(255, 255, 255))
+
+    normalized = transforms_dict["val"](white_image)
+
+    assert torch.equal(normalized, torch.ones((3, 16, 16)))
 
 
 @pytest.mark.parametrize(

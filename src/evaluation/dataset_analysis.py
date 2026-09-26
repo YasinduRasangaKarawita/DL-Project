@@ -1,10 +1,54 @@
+import json
 import os
+from pathlib import Path
+from typing import Any
+
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
-from typing import List, Dict
+
+from src.data.split_manifests import validate_manifest_checksums
+
+
+def summarize_frozen_splits(
+    manifest_dir: str | Path = "data/splits",
+) -> dict[str, Any]:
+    """Load the checksum-verified counts and class order used by EDA."""
+    manifest_path = Path(manifest_dir)
+    bundle_checksum = validate_manifest_checksums(manifest_path)
+
+    class_mapping = json.loads(
+        (manifest_path / "class_mapping.json").read_text(encoding="utf-8")
+    )
+    metadata = json.loads(
+        (manifest_path / "split_metadata.json").read_text(encoding="utf-8")
+    )
+
+    classes = class_mapping["classes"]
+    expected_mapping = {class_name: index for index, class_name in enumerate(classes)}
+    if class_mapping.get("class_to_index") != expected_mapping:
+        raise ValueError("Class mapping is not contiguous or does not match the class list")
+
+    split_counts = metadata["split_counts"]
+    class_counts = metadata["class_counts"]
+    for split, expected_count in split_counts.items():
+        observed_count = sum(class_counts[split].values())
+        if observed_count != expected_count:
+            raise ValueError(f"Class counts do not add up to the {split} split count")
+
+    return {
+        "dataset_revision": metadata["dataset_revision"],
+        "manifest_bundle_sha256": bundle_checksum,
+        "classes": classes,
+        "num_classes": len(classes),
+        "split_counts": split_counts,
+        "class_counts": class_counts,
+        "total_images": sum(split_counts.values()),
+    }
+
 
 def generate_dataset_figures(
     raw_dir: str = "data/raw",
@@ -17,7 +61,7 @@ def generate_dataset_figures(
     """
     os.makedirs(figures_dir, exist_ok=True)
     classes = sorted([d for d in os.listdir(raw_dir) if os.path.isdir(os.path.join(raw_dir, d))])
-    
+
     counts = {}
     sample_images = {}
     for cls in classes:

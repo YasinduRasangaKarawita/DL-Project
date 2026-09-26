@@ -1,7 +1,9 @@
-import torch
 import numpy as np
 from PIL import Image
-from src.data.preprocessing import get_transforms, denormalize_image
+from torchvision import transforms
+
+from src.data.preprocessing import denormalize_image, get_transforms
+
 
 def test_preprocessing_transforms():
     transforms_dict = get_transforms(image_size=(224, 224))
@@ -21,3 +23,23 @@ def test_preprocessing_transforms():
     np_img = denormalize_image(tensor_test)
     assert np_img.shape == (224, 224, 3)
     assert np_img.dtype == np.uint8
+
+
+def test_zoom_augmentation_is_training_only():
+    transforms_dict = get_transforms(
+        augmentation_config={"zoom_range": [0.9, 1.1]},
+    )
+
+    train_zoom = [
+        transform
+        for transform in transforms_dict["train"].transforms
+        if isinstance(transform, transforms.RandomAffine)
+    ]
+
+    assert len(train_zoom) == 1
+    assert train_zoom[0].scale == (0.9, 1.1)
+    assert not any(
+        isinstance(transform, transforms.RandomAffine)
+        for transform in transforms_dict["val"].transforms
+    )
+    assert transforms_dict["val"] is transforms_dict["test"]

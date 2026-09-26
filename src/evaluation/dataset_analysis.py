@@ -29,11 +29,7 @@ def summarize_frozen_splits(
 ) -> dict[str, Any]:
     """Load the checksum-verified counts and class order used by EDA."""
     manifest_path = Path(manifest_dir)
-    validate_manifest_checksums(manifest_path)
-    canonical_checksums = (manifest_path / "checksums.sha256").read_text(
-        encoding="utf-8"
-    )
-    bundle_checksum = hashlib.sha256(canonical_checksums.encode("utf-8")).hexdigest()
+    bundle_checksum = validate_manifest_checksums(manifest_path)
 
     class_mapping = json.loads(
         (manifest_path / "class_mapping.json").read_text(encoding="utf-8")

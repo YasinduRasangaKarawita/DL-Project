@@ -303,10 +303,11 @@ def _read_manifest(path: Path) -> list[dict[str, str]]:
 
 def validate_manifest_checksums(manifest_dir: Path) -> str:
     checksum_path = manifest_dir / "checksums.sha256"
+    checksum_text = checksum_path.read_text(encoding="utf-8")
     expected_names = set(GENERATED_FILENAMES) - {"checksums.sha256"}
     recorded: dict[str, str] = {}
     for line_number, line in enumerate(
-        checksum_path.read_text(encoding="utf-8").splitlines(), start=1
+        checksum_text.splitlines(), start=1
     ):
         parts = line.split("  ", 1)
         if len(parts) != 2 or len(parts[0]) != 64:
@@ -321,7 +322,7 @@ def validate_manifest_checksums(manifest_dir: Path) -> str:
         actual_digest = hashlib.sha256((manifest_dir / filename).read_bytes()).hexdigest()
         if actual_digest != expected_digest:
             raise ValueError(f"Checksum mismatch: {filename}")
-    return hashlib.sha256(checksum_path.read_bytes()).hexdigest()
+    return hashlib.sha256(checksum_text.encode("utf-8")).hexdigest()
 
 
 def validate_grouped_split_manifests(

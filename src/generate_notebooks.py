@@ -72,8 +72,32 @@ validation_report = project_root / 'data/processed/plantvillage/validation_repor
     md_cell("""## 1. Revalidate the locked dataset evidence
 
 These commands fully decode the acquired images, recheck the human-review and exclusion ledgers, and independently validate the frozen manifest bundle. They may take several minutes."""),
-    code_cell("""for command in ('validate', 'validate-review', 'validate-exclusions', 'validate-manifests'):
-    print(f'Running data check: {command}')
+    code_cell("""print('Running source audit: validate')
+previous_report_mtime = (
+    validation_report.stat().st_mtime_ns if validation_report.exists() else None
+)
+source_audit = subprocess.run(
+    [sys.executable, 'scripts/prepare_data.py', 'validate'],
+    cwd=project_root,
+    check=False,
+)
+if not validation_report.is_file():
+    raise RuntimeError('Source audit did not create its validation report')
+if validation_report.stat().st_mtime_ns == previous_report_mtime:
+    raise RuntimeError('Source audit did not refresh its validation report')
+
+source_report = json.loads(validation_report.read_text(encoding='utf-8'))
+expected_source_failures = {'exact duplicate groups crossing train/test: 5'}
+observed_source_failures = set(source_report['summary']['hard_failures'])
+if source_audit.returncode != 1 or observed_source_failures != expected_source_failures:
+    raise RuntimeError(
+        'Source audit produced an unexpected result: '
+        f'exit={source_audit.returncode}, failures={sorted(observed_source_failures)}'
+    )
+print('Expected source issue confirmed; checking reviewed remediation evidence.')
+
+for command in ('validate-review', 'validate-exclusions', 'validate-manifests'):
+    print(f'Running remediation check: {command}')
     subprocess.run(
         [sys.executable, 'scripts/prepare_data.py', command],
         cwd=project_root,

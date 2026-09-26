@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch import nn
 
-from src.models.custom_cnn import CustomCNN
+from src.models.custom_cnn import CustomCNN, build_custom_cnn
 from src.utils.helpers import count_parameters
 
 
@@ -39,6 +39,25 @@ def test_default_custom_cnn_parameter_count_is_stable():
 
     assert total_parameters == 136_262
     assert trainable_parameters == total_parameters
+
+
+def test_build_custom_cnn_uses_experiment_config():
+    model = build_custom_cnn(
+        num_classes=38,
+        model_config={
+            "conv_channels": [12, 24, 48],
+            "dense_units": 96,
+            "dropout_rate": 0.3,
+        },
+    )
+
+    assert model.block1[0].out_channels == 12
+    assert model.block2[0].out_channels == 24
+    assert model.block3[0].out_channels == 48
+    assert model.classifier[1].in_features == 48
+    assert model.classifier[1].out_features == 96
+    assert model.classifier[3].p == 0.3
+    assert model.classifier[4].out_features == 38
 
 
 @pytest.mark.parametrize(

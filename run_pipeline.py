@@ -15,7 +15,7 @@ from src.evaluation.error_analysis import run_error_analysis
 from src.evaluation.metrics import evaluate_model_metrics
 from src.evaluation.model_comparison import generate_model_comparison
 from src.evaluation.training_curves import plot_learning_curves
-from src.models.custom_cnn import CustomCNN
+from src.models.custom_cnn import build_custom_cnn
 from src.models.efficientnet_b0 import get_efficientnet_b0, unfreeze_efficientnet_layers
 from src.models.mobilenet_v3 import get_mobilenet_v3, unfreeze_mobilenet_layers
 from src.models.resnet50 import get_resnet50, unfreeze_resnet50_layers
@@ -79,7 +79,10 @@ def run_pipeline(config_path: str = "configs/config.yaml", quick_mode: bool = Fa
     model_configs = [
         {
             "name": "Custom_CNN",
-            "builder": lambda: CustomCNN(num_classes=num_classes, dropout_rate=config["models"]["custom_cnn"]["dropout_rate"]),
+            "builder": lambda: build_custom_cnn(
+                num_classes=num_classes,
+                model_config=config["models"]["custom_cnn"],
+            ),
             "save_path": config["models"]["custom_cnn"]["save_path"],
             "fine_tune": False
         },

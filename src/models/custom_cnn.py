@@ -1,8 +1,9 @@
 """Configuration-driven Custom CNN baseline."""
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from numbers import Real
+from typing import Any
 
 import torch
 from torch import nn
@@ -85,3 +86,13 @@ class CustomCNN(nn.Module):
         features = self.block3(features)
         features = self.global_pool(features)
         return self.classifier(features)
+
+
+def build_custom_cnn(num_classes: int, model_config: Mapping[str, Any]) -> CustomCNN:
+    """Build the baseline from the authoritative experiment configuration."""
+    return CustomCNN(
+        num_classes=num_classes,
+        conv_channels=model_config["conv_channels"],
+        dense_units=model_config["dense_units"],
+        dropout_rate=model_config["dropout_rate"],
+    )

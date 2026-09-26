@@ -2,7 +2,6 @@ import csv
 import hashlib
 import json
 import math
-import os
 import textwrap
 from collections import Counter
 from pathlib import Path, PurePosixPath
@@ -481,57 +480,26 @@ def summarize_data_quality(
 
 
 def generate_dataset_figures(
-    raw_dir: str = "data/raw",
-    figures_dir: str = "figures/dataset"
-) -> None:
-    """
-    Generate Exploratory Data Analysis (EDA) charts:
-    - Class distribution bar plot
-    - Grid of representative sample leaf images across classes
-    """
-    os.makedirs(figures_dir, exist_ok=True)
-    classes = sorted([d for d in os.listdir(raw_dir) if os.path.isdir(os.path.join(raw_dir, d))])
+    raw_dir: str | Path = "data/raw/plantvillage/color",
+    manifest_dir: str | Path = "data/splits",
+    figures_dir: str | Path = "figures/dataset",
+    seed: int = 42,
+) -> dict[str, Path]:
+    """Generate manifest-backed class-distribution and sample-grid figures."""
+    output_dir = Path(figures_dir)
+    summary = summarize_frozen_splits(manifest_dir)
+    distribution = analyze_class_distribution(summary, split="train")
+    selection = select_sample_images(
+        raw_dir,
+        manifest_dir=manifest_dir,
+        split="train",
+        seed=seed,
+    )
 
-    counts = {}
-    sample_images = {}
-    for cls in classes:
-        cls_dir = os.path.join(raw_dir, cls)
-        imgs = [f for f in os.listdir(cls_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-        counts[cls] = len(imgs)
-        if imgs:
-            sample_images[cls] = os.path.join(cls_dir, imgs[0])
-
-    # 1. Class Distribution Chart
-    fig, ax = plt.subplots(figsize=(10, 6))
-    names = [c.replace("___", "\n") for c in counts.keys()]
-    values = list(counts.values())
-    sns.barplot(x=names, y=values, palette="mako", ax=ax)
-    ax.set_title("PlantVillage Dataset — Class Sample Distribution", fontsize=13, weight="bold", pad=12)
-    ax.set_ylabel("Image Count", fontsize=11)
-    plt.xticks(rotation=45, ha="right", fontsize=9)
-    plt.tight_layout()
-    plt.savefig(os.path.join(figures_dir, "class_distribution.png"), dpi=200)
-    plt.close(fig)
-
-    # 2. Sample Images Grid (up to 12 classes)
-    display_classes = classes[:12]
-    rows = (len(display_classes) + 3) // 4
-    fig, axes = plt.subplots(rows, 4, figsize=(14, 3.5 * rows))
-    axes = axes.flatten() if hasattr(axes, "flatten") else [axes]
-
-    for idx, cls in enumerate(display_classes):
-        img_path = sample_images.get(cls)
-        if img_path and os.path.exists(img_path):
-            with Image.open(img_path) as img:
-                axes[idx].imshow(img)
-        display_label = cls.replace("___", "\n")
-        axes[idx].set_title(display_label, fontsize=10, weight="semibold")
-        axes[idx].axis("off")
-
-    for idx in range(len(display_classes), len(axes)):
-        axes[idx].axis("off")
-
-    plt.suptitle("Representative Leaf Images per Disease Category", fontsize=14, weight="bold", y=0.98)
-    plt.tight_layout()
-    plt.savefig(os.path.join(figures_dir, "sample_images.png"), dpi=200)
-    plt.close(fig)
+    outputs = {
+        "class_distribution": output_dir / "training_class_distribution.png",
+        "sample_grid": output_dir / "training_sample_grid.png",
+    }
+    plot_class_distribution(distribution, outputs["class_distribution"])
+    plot_sample_grid(selection, outputs["sample_grid"])
+    return outputs

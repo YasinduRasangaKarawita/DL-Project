@@ -15,6 +15,7 @@ from src.data.split_review import REVIEW_FIELDNAMES
 from src.evaluation.dataset_analysis import (
     analyze_class_distribution,
     analyze_image_dimensions,
+    generate_dataset_figures,
     plot_class_distribution,
     plot_sample_grid,
     select_sample_images,
@@ -323,3 +324,24 @@ def test_summarizes_cross_checked_data_quality_evidence(tmp_path):
         "validation": 1,
         "test": 1,
     }
+
+
+def test_generates_manifest_backed_dataset_figures(tmp_path):
+    raw_dir, manifest_dir = _write_dimension_fixture(tmp_path)
+    figures_dir = tmp_path / "figures"
+
+    outputs = generate_dataset_figures(
+        raw_dir=raw_dir,
+        manifest_dir=manifest_dir,
+        figures_dir=figures_dir,
+        seed=42,
+    )
+
+    assert outputs == {
+        "class_distribution": figures_dir / "training_class_distribution.png",
+        "sample_grid": figures_dir / "training_sample_grid.png",
+    }
+    for output_path in outputs.values():
+        assert output_path.stat().st_size > 0
+        with Image.open(output_path) as image:
+            assert image.format == "PNG"

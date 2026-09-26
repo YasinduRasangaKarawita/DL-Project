@@ -5,13 +5,20 @@ import json
 import pytest
 from PIL import Image
 
+from src.data.split_exclusions import (
+    EXACT_REASON,
+    EXCLUSION_FIELDNAMES,
+    PERCEPTUAL_REASON,
+)
 from src.data.split_manifests import MANIFEST_FIELDNAMES
+from src.data.split_review import REVIEW_FIELDNAMES
 from src.evaluation.dataset_analysis import (
     analyze_class_distribution,
     analyze_image_dimensions,
     plot_class_distribution,
     plot_sample_grid,
     select_sample_images,
+    summarize_data_quality,
     summarize_frozen_splits,
 )
 
@@ -62,7 +69,20 @@ def _write_dimension_fixture(tmp_path):
     generated[class_mapping_file.name] = class_mapping_file
 
     metadata_file = manifest_dir / "split_metadata.json"
-    metadata_file.write_text("{}", encoding="utf-8")
+    metadata_file.write_text(
+        json.dumps(
+            {
+                "dataset_revision": "fixture-revision",
+                "split_counts": {"train": 1, "validation": 1, "test": 1},
+                "class_counts": {
+                    split: {class_name: 1}
+                    for split in ("train", "validation", "test")
+                },
+                "source_counts": {"excluded_unique_training_images": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
     generated[metadata_file.name] = metadata_file
 
     (manifest_dir / "checksums.sha256").write_text(
@@ -73,6 +93,120 @@ def _write_dimension_fixture(tmp_path):
         encoding="utf-8",
     )
     return raw_dir, manifest_dir
+
+
+def _write_quality_fixture(tmp_path):
+    _, manifest_dir = _write_dimension_fixture(tmp_path)
+    source_lock_path = tmp_path / "source-lock.json"
+    source_lock_path.write_text(
+        json.dumps(
+            {
+                "dataset": {"resolved_revision": "fixture-revision"},
+                "expected": {"images": 3},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    validation_report_path = tmp_path / "validation-report.json"
+    validation_report_path.write_text(
+        json.dumps(
+            {
+                "dataset": {"source_revision": "fixture-revision"},
+                "summary": {"status": "fail"},
+                "integrity": {
+                    "images_scanned": 3,
+                    "readable_images": 3,
+                    "empty_file_count": 0,
+                    "corrupted_file_count": 0,
+                    "image_modes": {"RGB": 3},
+                    "non_rgb_image_count": 0,
+                    "dimensions": {"10x10": 3},
+                },
+                "duplicates": {
+                    "exact": {"groups": 1, "images": 2, "cross_split_groups": 1},
+                    "perceptual": {
+                        "pairs": 4,
+                        "cross_split_pairs": 2,
+                    },
+                },
+                "leaf_grouping": {
+                    "mapped_images": 3,
+                    "unmapped_images": 0,
+                    "ambiguous_images": 0,
+                    "metadata_coverage_fraction": 1.0,
+                    "resolved_groups": 3,
+                    "train_test_group_overlap": 0,
+                },
+                "official_splits": {
+                    "train_images": 2,
+                    "test_images": 1,
+                    "path_overlap": 0,
+                    "missing_local_images": 0,
+                    "unlisted_local_images": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    review_rows = [
+        {
+            "candidate_id": "candidate-1",
+            "dataset_revision": "fixture-revision",
+            "hash_algorithm": "dhash-64",
+            "maximum_hamming_distance": 4,
+            "hamming_distance": 2,
+            "train_path": "Plant___healthy/train-1.JPG",
+            "test_path": "Plant___healthy/test.JPG",
+            "decision": "exclude_train_related",
+            "review_notes": "Related fixture pair.",
+        },
+        {
+            "candidate_id": "candidate-2",
+            "dataset_revision": "fixture-revision",
+            "hash_algorithm": "dhash-64",
+            "maximum_hamming_distance": 4,
+            "hamming_distance": 4,
+            "train_path": "Plant___healthy/train-2.JPG",
+            "test_path": "Plant___healthy/test.JPG",
+            "decision": "keep_both_false_positive",
+            "review_notes": "Unrelated fixture pair.",
+        },
+    ]
+    with (manifest_dir / "perceptual_duplicate_review.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=REVIEW_FIELDNAMES)
+        writer.writeheader()
+        writer.writerows(review_rows)
+
+    exclusion_rows = [
+        {
+            "exclusion_id": "exact-1",
+            "dataset_revision": "fixture-revision",
+            "reason": EXACT_REASON,
+            "train_path": "Plant___healthy/train-1.JPG",
+            "related_test_path": "Plant___healthy/test.JPG",
+            "evidence": "exact-hash",
+        },
+        {
+            "exclusion_id": "near-1",
+            "dataset_revision": "fixture-revision",
+            "reason": PERCEPTUAL_REASON,
+            "train_path": "Plant___healthy/train-2.JPG",
+            "related_test_path": "Plant___healthy/test.JPG",
+            "evidence": "candidate-1",
+        },
+    ]
+    with (manifest_dir / "training_exclusions.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=EXCLUSION_FIELDNAMES)
+        writer.writeheader()
+        writer.writerows(exclusion_rows)
+
+    return validation_report_path, source_lock_path, manifest_dir
 
 
 def test_summarizes_frozen_plantvillage_splits():
@@ -86,7 +220,9 @@ def test_summarizes_frozen_plantvillage_splits():
     }
     assert summary["total_images"] == 54286
     assert set(summary["class_counts"]) == {"train", "validation", "test"}
-    assert len(summary["manifest_bundle_sha256"]) == 64
+    assert summary["manifest_bundle_sha256"] == (
+        "19ca82ed9a1832dbeca228bbcb35274cd3362758e918818e64587f4d0bd1306c"
+    )
 
 
 def test_analyzes_training_class_distribution():
@@ -167,3 +303,23 @@ def test_selects_and_plots_manifest_sample_grid(tmp_path):
     assert output_path.stat().st_size > 0
     with Image.open(output_path) as image:
         assert image.format == "PNG"
+
+
+def test_summarizes_cross_checked_data_quality_evidence(tmp_path):
+    report_path, source_lock_path, manifest_dir = _write_quality_fixture(tmp_path)
+
+    summary = summarize_data_quality(report_path, source_lock_path, manifest_dir)
+
+    assert summary["dataset_revision"] == "fixture-revision"
+    assert summary["integrity"]["readable_images"] == 3
+    assert summary["duplicates"]["review_decisions"] == {
+        "exclude_train_related": 1,
+        "keep_both_false_positive": 1,
+    }
+    assert summary["duplicates"]["unique_training_images_excluded"] == 2
+    assert summary["leaf_grouping"]["official_train_test_overlap"] == 0
+    assert summary["frozen_splits"]["counts"] == {
+        "train": 1,
+        "validation": 1,
+        "test": 1,
+    }

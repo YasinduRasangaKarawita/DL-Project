@@ -16,7 +16,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
 
+from src.data.split_exclusions import (
+    EXACT_REASON,
+    EXCLUSION_FIELDNAMES,
+    PERCEPTUAL_REASON,
+)
 from src.data.split_manifests import MANIFEST_FIELDNAMES, validate_manifest_checksums
+from src.data.split_review import REVIEW_FIELDNAMES, VALID_REVIEW_DECISIONS
 
 
 def summarize_frozen_splits(
@@ -24,7 +30,11 @@ def summarize_frozen_splits(
 ) -> dict[str, Any]:
     """Load the checksum-verified counts and class order used by EDA."""
     manifest_path = Path(manifest_dir)
-    bundle_checksum = validate_manifest_checksums(manifest_path)
+    validate_manifest_checksums(manifest_path)
+    canonical_checksums = (manifest_path / "checksums.sha256").read_text(
+        encoding="utf-8"
+    )
+    bundle_checksum = hashlib.sha256(canonical_checksums.encode("utf-8")).hexdigest()
 
     class_mapping = json.loads(
         (manifest_path / "class_mapping.json").read_text(encoding="utf-8")
@@ -347,6 +357,127 @@ def plot_sample_grid(
         plt.close(fig)
 
     return output
+
+
+def summarize_data_quality(
+    validation_report_path: str | Path = (
+        "data/processed/plantvillage/validation_report.json"
+    ),
+    source_lock_path: str | Path = "data/plantvillage_source.lock.json",
+    manifest_dir: str | Path = "data/splits",
+) -> dict[str, Any]:
+    """Cross-check validation evidence and return concise data-quality findings."""
+    report = json.loads(Path(validation_report_path).read_text(encoding="utf-8"))
+    source_lock = json.loads(Path(source_lock_path).read_text(encoding="utf-8"))
+    manifest_path = Path(manifest_dir)
+    frozen_summary = summarize_frozen_splits(manifest_path)
+    split_metadata = json.loads(
+        (manifest_path / "split_metadata.json").read_text(encoding="utf-8")
+    )
+
+    revision = source_lock["dataset"]["resolved_revision"]
+    observed_revisions = {
+        report["dataset"]["source_revision"],
+        frozen_summary["dataset_revision"],
+    }
+    if observed_revisions != {revision}:
+        raise ValueError("Data-quality evidence does not use one source revision")
+    if report["integrity"]["images_scanned"] != source_lock["expected"]["images"]:
+        raise ValueError("Validation image count does not match the source lock")
+
+    review_path = manifest_path / "perceptual_duplicate_review.csv"
+    with review_path.open(encoding="utf-8", newline="") as file_handle:
+        reader = csv.DictReader(file_handle)
+        if tuple(reader.fieldnames or ()) != REVIEW_FIELDNAMES:
+            raise ValueError("Perceptual-review ledger columns do not match the schema")
+        review_rows = list(reader)
+
+    exclusion_path = manifest_path / "training_exclusions.csv"
+    with exclusion_path.open(encoding="utf-8", newline="") as file_handle:
+        reader = csv.DictReader(file_handle)
+        if tuple(reader.fieldnames or ()) != EXCLUSION_FIELDNAMES:
+            raise ValueError("Training-exclusion ledger columns do not match the schema")
+        exclusion_rows = list(reader)
+
+    ledger_revisions = {
+        row["dataset_revision"] for row in review_rows + exclusion_rows
+    }
+    if ledger_revisions != {revision}:
+        raise ValueError("Review or exclusion evidence uses a different source revision")
+
+    review_counts = Counter(row["decision"] for row in review_rows)
+    if set(review_counts) - VALID_REVIEW_DECISIONS:
+        raise ValueError("Perceptual-review ledger contains an invalid decision")
+    perceptual = report["duplicates"]["perceptual"]
+    if len(review_rows) != perceptual["cross_split_pairs"]:
+        raise ValueError("Review ledger does not cover every cross-split candidate")
+
+    exclusion_counts = Counter(row["reason"] for row in exclusion_rows)
+    if set(exclusion_counts) - {EXACT_REASON, PERCEPTUAL_REASON}:
+        raise ValueError("Training-exclusion ledger contains an invalid reason")
+    if exclusion_counts[EXACT_REASON] != report["duplicates"]["exact"]["cross_split_groups"]:
+        raise ValueError("Exact-duplicate exclusions do not match the validation report")
+    if exclusion_counts[PERCEPTUAL_REASON] != review_counts["exclude_train_related"]:
+        raise ValueError("Perceptual exclusions do not match the completed reviews")
+
+    excluded_training_images = {row["train_path"] for row in exclusion_rows}
+    expected_exclusions = split_metadata["source_counts"][
+        "excluded_unique_training_images"
+    ]
+    if len(excluded_training_images) != expected_exclusions:
+        raise ValueError("Unique exclusions do not match the frozen split metadata")
+
+    integrity = report["integrity"]
+    exact = report["duplicates"]["exact"]
+    leaf_grouping = report["leaf_grouping"]
+    official_splits = report["official_splits"]
+
+    return {
+        "dataset_revision": revision,
+        "source_audit_status": report["summary"]["status"],
+        "integrity": {
+            "images_scanned": integrity["images_scanned"],
+            "readable_images": integrity["readable_images"],
+            "empty_files": integrity["empty_file_count"],
+            "corrupted_files": integrity["corrupted_file_count"],
+            "image_modes": integrity["image_modes"],
+            "non_rgb_images": integrity["non_rgb_image_count"],
+            "dimensions": integrity["dimensions"],
+        },
+        "duplicates": {
+            "exact_groups": exact["groups"],
+            "exact_images": exact["images"],
+            "exact_cross_split_groups": exact["cross_split_groups"],
+            "perceptual_candidate_pairs": perceptual["pairs"],
+            "perceptual_cross_split_pairs": perceptual["cross_split_pairs"],
+            "review_decisions": dict(sorted(review_counts.items())),
+            "exclusion_records": len(exclusion_rows),
+            "unique_training_images_excluded": len(excluded_training_images),
+            "exclusions_by_reason": dict(sorted(exclusion_counts.items())),
+        },
+        "leaf_grouping": {
+            "mapped_images": leaf_grouping["mapped_images"],
+            "unmapped_images": leaf_grouping["unmapped_images"],
+            "ambiguous_images": leaf_grouping["ambiguous_images"],
+            "coverage_fraction": leaf_grouping["metadata_coverage_fraction"],
+            "resolved_groups": leaf_grouping["resolved_groups"],
+            "official_train_test_overlap": leaf_grouping["train_test_group_overlap"],
+        },
+        "official_splits": {
+            "train_images": official_splits["train_images"],
+            "test_images": official_splits["test_images"],
+            "path_overlap": official_splits["path_overlap"],
+            "coverage_gaps": (
+                official_splits["missing_local_images"]
+                + official_splits["unlisted_local_images"]
+            ),
+        },
+        "frozen_splits": {
+            "counts": frozen_summary["split_counts"],
+            "classes": frozen_summary["num_classes"],
+            "bundle_sha256": frozen_summary["manifest_bundle_sha256"],
+        },
+    }
 
 
 def generate_dataset_figures(

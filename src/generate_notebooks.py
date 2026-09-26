@@ -299,22 +299,112 @@ plt.show()"""),
 
 # 3. Custom CNN
 nb3 = make_notebook([
-    md_cell("# 🤖 03. Custom CNN Baseline Model\nImplements 3-block convolutional baseline (Conv2D -> BatchNorm -> ReLU -> MaxPool) with Global Average Pooling."),
-    code_cell("""import json, os, sys, torch
+    md_cell("""# 🤖 03. Custom CNN Baseline Architecture
+
+This notebook documents and verifies the from-scratch Custom CNN baseline. It builds the model from the authoritative experiment configuration and frozen 38-class mapping, then records every stage's operation, output shape, and parameter count. No training or test-set evaluation is performed here."""),
+    code_cell("""import json
+import sys
 from pathlib import Path
 
-sys.path.append('..')
-from src.models.custom_cnn import CustomCNN
-from src.utils.helpers import count_parameters
+import pandas as pd
+import torch
+from IPython.display import Markdown, display
 
-mapping = json.loads(Path('../data/splits/class_mapping.json').read_text(encoding='utf-8'))
-model = CustomCNN(num_classes=len(mapping['classes']))
-total_p, train_p = count_parameters(model)
-print(f"Custom CNN Total Parameters: {total_p:,} | Trainable: {train_p:,}")
+project_root = Path.cwd().resolve()
+if not (project_root / 'src').is_dir():
+    project_root = project_root.parent
+sys.path.insert(0, str(project_root))
 
-dummy_x = torch.randn(2, 3, 224, 224)
-out = model(dummy_x)
-print("Output logits shape:", out.shape)""")
+from src.models.custom_cnn import build_custom_cnn
+from src.utils.helpers import count_parameters, load_yaml_config
+
+config = load_yaml_config(str(project_root / 'configs/config.yaml'))
+model_config = config['models']['custom_cnn']
+image_size = tuple(config['dataset']['image_size'])
+
+mapping = json.loads(
+    (project_root / 'data/splits/class_mapping.json').read_text(encoding='utf-8')
+)
+classes = mapping['classes']
+class_to_index = mapping['class_to_index']
+assert class_to_index == {class_name: index for index, class_name in enumerate(classes)}
+
+model = build_custom_cnn(
+    num_classes=len(classes),
+    model_config=model_config,
+)
+model.eval()
+
+total_parameters, trainable_parameters = count_parameters(model)
+assert len(classes) == 38
+assert total_parameters == 136_262
+assert trainable_parameters == total_parameters
+
+print(f'Classes: {len(classes)}')
+print(f'Total parameters: {total_parameters:,}')
+print(f'Trainable parameters: {trainable_parameters:,}')"""),
+    md_cell("""## Verified layer-by-layer architecture
+
+Forward hooks capture the actual tensor produced by each stage. This prevents the reported shapes from drifting away from the implementation."""),
+    code_cell("""stage_records = []
+
+def capture_stage(stage_name, operation):
+    def hook(module, inputs, output):
+        stage_records.append({
+            'Stage': stage_name,
+            'Operation': operation,
+            'Output shape': ' × '.join(str(value) for value in output.shape),
+            'Parameters': sum(parameter.numel() for parameter in module.parameters()),
+        })
+    return hook
+
+channels = model_config['conv_channels']
+dense_units = model_config['dense_units']
+dropout_rate = model_config['dropout_rate']
+stage_specs = [
+    (model.block1, 'Conv block 1', f'Conv 3→{channels[0]}, BatchNorm, ReLU, MaxPool'),
+    (model.block2, 'Conv block 2', f'Conv {channels[0]}→{channels[1]}, BatchNorm, ReLU, MaxPool'),
+    (model.block3, 'Conv block 3', f'Conv {channels[1]}→{channels[2]}, BatchNorm, ReLU, MaxPool'),
+    (model.global_pool, 'Global pool', 'Adaptive average pooling to 1×1'),
+    (model.classifier[1], 'Dense', f'Linear {channels[2]}→{dense_units}'),
+    (model.classifier[2], 'Dense activation', 'ReLU'),
+    (model.classifier[3], 'Regularization', f'Dropout p={dropout_rate}'),
+    (model.classifier[4], 'Output', f'Linear {dense_units}→{len(classes)} logits'),
+]
+handles = [
+    module.register_forward_hook(capture_stage(stage_name, operation))
+    for module, stage_name, operation in stage_specs
+]
+
+dummy_input = torch.zeros(1, 3, *image_size)
+with torch.no_grad():
+    logits = model(dummy_input)
+
+for handle in handles:
+    handle.remove()
+
+architecture = pd.DataFrame([
+    {
+        'Stage': 'Input',
+        'Operation': 'RGB image tensor',
+        'Output shape': ' × '.join(str(value) for value in dummy_input.shape),
+        'Parameters': 0,
+    },
+    *stage_records,
+])
+
+assert logits.shape == (1, len(classes))
+assert architecture['Parameters'].sum() == total_parameters
+display(architecture)"""),
+    code_cell("""display(Markdown(f'''## Verified baseline facts
+
+- The network is initialized **from scratch**; it has no pretrained backbone.
+- Input: **3 × {image_size[0]} × {image_size[1]}** RGB tensor.
+- Feature extractor: three Conv2d → BatchNorm → ReLU → MaxPool blocks with channels **{channels}**.
+- Head: adaptive global average pooling, **{dense_units}** dense units, ReLU, and dropout **p={dropout_rate}**.
+- Output: **{len(classes)}** unnormalized class logits in the frozen class order.
+- Parameters: **{total_parameters:,} total**, all trainable.
+'''))""")
 ])
 
 # 4. ResNet50

@@ -93,6 +93,55 @@ def analyze_class_distribution(
     }
 
 
+def plot_class_distribution(
+    analysis: dict[str, Any],
+    output_path: str | Path,
+) -> Path:
+    """Save a readable horizontal class-distribution chart for one split."""
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    ordered = sorted(
+        analysis["distribution"],
+        key=lambda row: (row["count"], row["class_name"]),
+    )
+    labels = [
+        row["class_name"].replace("___", " — ").replace("_", " ")
+        for row in ordered
+    ]
+    counts = [row["count"] for row in ordered]
+    colors = sns.color_palette("mako", n_colors=len(ordered))
+
+    fig, ax = plt.subplots(figsize=(12, 14))
+    try:
+        bars = ax.barh(labels, counts, color=colors)
+        ax.bar_label(bars, padding=3, fontsize=8)
+        ax.axvline(
+            analysis["mean_images_per_class"],
+            color="#c44e52",
+            linestyle="--",
+            linewidth=1.5,
+            label=f'Mean: {analysis["mean_images_per_class"]:.1f}',
+        )
+        ax.set_title(
+            f'PlantVillage {analysis["split"].title()} Class Distribution\n'
+            f'Imbalance ratio: {analysis["imbalance_ratio"]:.2f}:1',
+            fontsize=14,
+            weight="bold",
+            pad=12,
+        )
+        ax.set_xlabel("Number of images")
+        ax.set_ylabel("Class")
+        ax.legend(loc="lower right")
+        ax.margins(x=0.12)
+        fig.tight_layout()
+        fig.savefig(output, dpi=200, bbox_inches="tight")
+    finally:
+        plt.close(fig)
+
+    return output
+
+
 def generate_dataset_figures(
     raw_dir: str = "data/raw",
     figures_dir: str = "figures/dataset"

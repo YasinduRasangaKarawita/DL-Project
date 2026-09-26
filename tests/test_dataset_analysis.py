@@ -1,7 +1,9 @@
 import pytest
+from PIL import Image
 
 from src.evaluation.dataset_analysis import (
     analyze_class_distribution,
+    plot_class_distribution,
     summarize_frozen_splits,
 )
 
@@ -40,3 +42,17 @@ def test_rejects_unknown_split_for_class_distribution():
 
     with pytest.raises(ValueError, match="Unknown split"):
         analyze_class_distribution(summary, split="development")
+
+
+def test_plots_training_class_distribution(tmp_path):
+    summary = summarize_frozen_splits()
+    analysis = analyze_class_distribution(summary, split="train")
+    output_path = tmp_path / "training_class_distribution.png"
+
+    result = plot_class_distribution(analysis, output_path)
+
+    assert result == output_path
+    assert output_path.stat().st_size > 0
+    with Image.open(output_path) as image:
+        assert image.format == "PNG"
+        assert image.width > image.height / 2

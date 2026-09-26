@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from statistics import mean, median
 from typing import Any
 
 import matplotlib
@@ -47,6 +48,48 @@ def summarize_frozen_splits(
         "split_counts": split_counts,
         "class_counts": class_counts,
         "total_images": sum(split_counts.values()),
+    }
+
+
+def analyze_class_distribution(
+    summary: dict[str, Any],
+    split: str = "train",
+) -> dict[str, Any]:
+    """Calculate per-class proportions and imbalance statistics for one split."""
+    class_counts = summary["class_counts"]
+    if split not in class_counts:
+        available = ", ".join(sorted(class_counts))
+        raise ValueError(f"Unknown split {split!r}; expected one of: {available}")
+
+    classes = summary["classes"]
+    counts = class_counts[split]
+    if set(counts) != set(classes):
+        raise ValueError(f"Class counts for {split} do not match the frozen class mapping")
+    if any(counts[class_name] <= 0 for class_name in classes):
+        raise ValueError(f"Every class must have at least one image in {split}")
+
+    total_images = sum(counts.values())
+    distribution = [
+        {
+            "class_name": class_name,
+            "count": counts[class_name],
+            "percentage": counts[class_name] / total_images * 100,
+        }
+        for class_name in classes
+    ]
+    smallest = min(distribution, key=lambda row: (row["count"], row["class_name"]))
+    largest = max(distribution, key=lambda row: (row["count"], row["class_name"]))
+    count_values = [row["count"] for row in distribution]
+
+    return {
+        "split": split,
+        "total_images": total_images,
+        "distribution": distribution,
+        "smallest_class": smallest,
+        "largest_class": largest,
+        "imbalance_ratio": largest["count"] / smallest["count"],
+        "mean_images_per_class": mean(count_values),
+        "median_images_per_class": median(count_values),
     }
 
 

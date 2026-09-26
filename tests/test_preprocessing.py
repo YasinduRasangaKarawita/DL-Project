@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from PIL import Image
 from torchvision import transforms
 
@@ -43,3 +44,33 @@ def test_zoom_augmentation_is_training_only():
         for transform in transforms_dict["val"].transforms
     )
     assert transforms_dict["val"] is transforms_dict["test"]
+
+
+@pytest.mark.parametrize(
+    ("image_size", "augmentation_config", "expected_message"),
+    [
+        ((0, 224), {}, "image_size"),
+        ((224, 224), {"horizontal_flip_prob": 1.1}, "horizontal_flip_prob"),
+        ((224, 224), {"rotation_degrees": -1}, "rotation_degrees"),
+        ((224, 224), {"brightness_factor": -0.1}, "brightness_factor"),
+        ((224, 224), {"contrast_factor": float("inf")}, "contrast_factor"),
+        ((224, 224), {"zoom_range": [1.2, 0.8]}, "zoom_range"),
+        (
+            (224, 224),
+            {"normalization": {"mean": [0.5, 0.5], "std": [0.5, 0.5, 0.5]}},
+            "normalization mean",
+        ),
+        (
+            (224, 224),
+            {"normalization": {"mean": [0.5, 0.5, 0.5], "std": [0.5, 0, 0.5]}},
+            "normalization std",
+        ),
+    ],
+)
+def test_invalid_transform_config_is_rejected(
+    image_size,
+    augmentation_config,
+    expected_message,
+):
+    with pytest.raises(ValueError, match=expected_message):
+        get_transforms(image_size=image_size, augmentation_config=augmentation_config)

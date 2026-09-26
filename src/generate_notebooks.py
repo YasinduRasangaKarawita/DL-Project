@@ -40,29 +40,132 @@ def code_cell(code):
 
 # 1. Dataset Exploration
 nb1 = make_notebook([
-    md_cell("# 🌿 01. PlantVillage Dataset Exploration & Quality Audit\nValidates the frozen PlantVillage split bundle, reports its reviewed partition counts, and generates exploratory figures from the acquired real images."),
-    code_cell("""import json, subprocess, sys
+    md_cell("""# 🌿 01. PlantVillage Dataset Exploration & Quality Audit
+
+This notebook uses the locked PlantVillage source, reviewed exclusion evidence, and checksum-verified frozen manifests. It reports class balance, image dimensions, representative **training-only** samples, and the data-quality decisions that prevent leakage. The locked test images are never displayed or used to make preprocessing or model-design decisions."""),
+    code_cell("""import json
+import subprocess
+import sys
 from pathlib import Path
 
-sys.path.append('..')
-from src.evaluation.dataset_analysis import generate_dataset_figures
+import pandas as pd
+from IPython.display import Image as NotebookImage
+from IPython.display import Markdown, display
 
-project_root = Path('..').resolve()
-subprocess.run(
-    [sys.executable, 'scripts/prepare_data.py', 'validate-manifests'],
+project_root = Path.cwd().resolve()
+if not (project_root / 'src').is_dir():
+    project_root = project_root.parent
+sys.path.insert(0, str(project_root))
+
+from src.evaluation.dataset_analysis import (
+    analyze_class_distribution,
+    analyze_image_dimensions,
+    generate_dataset_figures,
+    summarize_data_quality,
+    summarize_frozen_splits,
+)
+
+raw_dir = project_root / 'data/raw/plantvillage/color'
+manifest_dir = project_root / 'data/splits'
+figures_dir = project_root / 'figures/dataset'
+validation_report = project_root / 'data/processed/plantvillage/validation_report.json'"""),
+    md_cell("""## 1. Revalidate the locked dataset evidence
+
+These commands fully decode the acquired images, recheck the human-review and exclusion ledgers, and independently validate the frozen manifest bundle. They may take several minutes."""),
+    code_cell("""print('Running source audit: validate')
+previous_report_mtime = (
+    validation_report.stat().st_mtime_ns if validation_report.exists() else None
+)
+source_audit = subprocess.run(
+    [sys.executable, 'scripts/prepare_data.py', 'validate'],
     cwd=project_root,
-    check=True,
+    check=False,
 )
-metadata = json.loads(
-    (project_root / 'data/splits/split_metadata.json').read_text(encoding='utf-8')
+if not validation_report.is_file():
+    raise RuntimeError('Source audit did not create its validation report')
+if validation_report.stat().st_mtime_ns == previous_report_mtime:
+    raise RuntimeError('Source audit did not refresh its validation report')
+
+source_report = json.loads(validation_report.read_text(encoding='utf-8'))
+expected_source_failures = {'exact duplicate groups crossing train/test: 5'}
+observed_source_failures = set(source_report['summary']['hard_failures'])
+if source_audit.returncode != 1 or observed_source_failures != expected_source_failures:
+    raise RuntimeError(
+        'Source audit produced an unexpected result: '
+        f'exit={source_audit.returncode}, failures={sorted(observed_source_failures)}'
+    )
+print('Expected source issue confirmed; checking reviewed remediation evidence.')
+
+for command in ('validate-review', 'validate-exclusions', 'validate-manifests'):
+    print(f'Running remediation check: {command}')
+    subprocess.run(
+        [sys.executable, 'scripts/prepare_data.py', command],
+        cwd=project_root,
+        check=True,
+    )"""),
+    md_cell("## 2. Frozen split and class-distribution summary"),
+    code_cell("""split_summary = summarize_frozen_splits(manifest_dir)
+training_distribution = analyze_class_distribution(split_summary, split='train')
+
+display(pd.DataFrame([{
+    'classes': split_summary['num_classes'],
+    'train_images': split_summary['split_counts']['train'],
+    'validation_images': split_summary['split_counts']['validation'],
+    'test_images': split_summary['split_counts']['test'],
+    'total_images': split_summary['total_images'],
+    'manifest_bundle_sha256': split_summary['manifest_bundle_sha256'],
+}]))
+
+class_table = pd.DataFrame(training_distribution['distribution']).sort_values(
+    'count', ascending=False
 )
-print('Frozen split counts:', metadata['split_counts'])"""),
-    code_cell("""# Generate and display EDA visualizations
-generate_dataset_figures(
-    raw_dir='../data/raw/plantvillage/color',
-    figures_dir='../figures/dataset',
+display(class_table.reset_index(drop=True))
+print(f"Largest class: {training_distribution['largest_class']['class_name']} "
+      f"({training_distribution['largest_class']['count']:,})")
+print(f"Smallest class: {training_distribution['smallest_class']['class_name']} "
+      f"({training_distribution['smallest_class']['count']:,})")
+print(f"Training imbalance ratio: {training_distribution['imbalance_ratio']:.2f}:1")"""),
+    md_cell("""## 3. Manifest-backed EDA figures
+
+The distribution chart uses only the frozen training counts. The sample grid selects one training image per class deterministically with seed 42; it does not cherry-pick examples or display locked test images."""),
+    code_cell("""figure_paths = generate_dataset_figures(
+    raw_dir=raw_dir,
+    manifest_dir=manifest_dir,
+    figures_dir=figures_dir,
+    seed=42,
 )
-print("EDA figures successfully generated in figures/dataset/")""")
+for label, path in figure_paths.items():
+    display(Markdown(f'### {label.replace("_", " ").title()}'))
+    display(NotebookImage(filename=str(path)))"""),
+    md_cell("## 4. Image dimensions and aspect ratios"),
+    code_cell("""dimension_analysis = analyze_image_dimensions(raw_dir, manifest_dir)
+dimension_summary = {
+    key: value
+    for key, value in dimension_analysis.items()
+    if key not in {'records'}
+}
+print(json.dumps(dimension_summary, indent=2))"""),
+    md_cell("## 5. Data-quality and leakage findings"),
+    code_cell("""quality = summarize_data_quality(
+    validation_report_path=validation_report,
+    source_lock_path=project_root / 'data/plantvillage_source.lock.json',
+    manifest_dir=manifest_dir,
+)
+print(json.dumps(quality, indent=2))"""),
+    code_cell("""duplicates = quality['duplicates']
+integrity = quality['integrity']
+grouping = quality['leaf_grouping']
+
+display(Markdown(f'''## Evidence-based findings
+
+- All **{integrity['readable_images']:,}** source images are readable; there are **{integrity['empty_files']}** empty and **{integrity['corrupted_files']}** corrupted files.
+- Every source image is 256×256. One readable RGBA image is converted deterministically to RGB by the loader.
+- The training split is imbalanced: **{training_distribution['largest_class']['class_name']}** has **{training_distribution['largest_class']['count']:,}** images, while **{training_distribution['smallest_class']['class_name']}** has **{training_distribution['smallest_class']['count']:,}** ({training_distribution['imbalance_ratio']:.2f}:1).
+- The source audit found **{duplicates['exact_cross_split_groups']}** exact duplicate groups crossing the official train/test boundary and **{duplicates['perceptual_cross_split_pairs']}** perceptual candidates requiring review.
+- Human review classified **{duplicates['review_decisions']['exclude_train_related']}** candidates as related and **{duplicates['review_decisions']['keep_both_false_positive']}** as false positives. The resulting evidence excludes **{duplicates['unique_training_images_excluded']}** unique training images while preserving the official test set.
+- Upstream metadata maps **{grouping['mapped_images']:,}** images to resolved physical-leaf groups ({grouping['coverage_fraction']:.2%} coverage). Frozen manifests keep resolved groups within one partition.
+- PlantVillage uses controlled backgrounds and centered leaves. Results may not generalize to cluttered field photographs, varied lighting, occlusion, multiple leaves, or unseen diseases.
+'''))""")
 ])
 
 # 2. Preprocessing
@@ -183,6 +286,6 @@ notebook_map = {
 
 for fname, nb in notebook_map.items():
     path = os.path.join(notebooks_dir, fname)
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(nb, f, indent=2)
     print(f"Created {path}")

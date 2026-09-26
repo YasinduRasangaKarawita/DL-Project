@@ -7,6 +7,7 @@ from src.data.split_exclusions import EXCLUSION_FIELDNAMES
 from src.data.split_manifests import (
     build_grouped_split_manifests,
     validate_grouped_split_manifests,
+    validate_manifest_checksums,
 )
 
 
@@ -169,6 +170,24 @@ def test_validates_frozen_manifest_bundle(tmp_path):
     assert summary["classes"] == 2
     assert summary["excluded_unique_training_images"] == 1
     assert len(summary["manifest_bundle_sha256"]) == 64
+
+
+def test_bundle_checksum_is_independent_of_line_endings(tmp_path):
+    metadata_dir, lock_path, exclusion_path = _write_fixture(tmp_path)
+    output_dir = tmp_path / "manifests"
+    build_grouped_split_manifests(
+        metadata_dir,
+        lock_path,
+        exclusion_path,
+        output_dir,
+        validation_fraction=0.4,
+        seed=42,
+    )
+    expected_checksum = validate_manifest_checksums(output_dir)
+    checksum_path = output_dir / "checksums.sha256"
+    checksum_path.write_bytes(checksum_path.read_bytes().replace(b"\n", b"\r\n"))
+
+    assert validate_manifest_checksums(output_dir) == expected_checksum
 
 
 def test_validation_rejects_modified_manifest(tmp_path):

@@ -170,21 +170,131 @@ display(Markdown(f'''## Evidence-based findings
 
 # 2. Preprocessing
 nb2 = make_notebook([
-    md_cell("# 🔄 02. Preprocessing, Data Augmentation & Frozen Splits\nLoads the checksum-verified grouped train/validation/test manifests and demonstrates the torchvision transform pipelines."),
-    code_cell("""import os, sys
-sys.path.append('..')
-from src.data.dataset_loader import get_dataloaders
-from src.data.preprocessing import get_transforms
+    md_cell("""# 🔄 02. Preprocessing, Data Augmentation & Frozen Splits
 
-train_loader, val_loader, test_loader, classes, class_to_idx = get_dataloaders(
-    raw_dir='../data/raw/plantvillage/color',
-    manifest_dir='../data/splits',
-    batch_size=32,
-    image_size=(224, 224),
-    random_seed=42
+This notebook verifies the configuration-driven preprocessing contract against the checksum-verified frozen manifests. Random augmentation is applied only to training images; validation and test preprocessing remains deterministic. Only a training image is displayed, so the locked test set is not inspected."""),
+    code_cell("""import sys
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import torch
+from IPython.display import Markdown, display
+from PIL import Image
+from torchvision import transforms
+
+project_root = Path.cwd().resolve()
+if not (project_root / 'src').is_dir():
+    project_root = project_root.parent
+sys.path.insert(0, str(project_root))
+
+from src.data.dataset_loader import get_dataloaders
+from src.data.preprocessing import denormalize_image, get_transforms
+from src.utils.helpers import load_yaml_config
+
+config = load_yaml_config(str(project_root / 'configs/config.yaml'))
+dataset_config = config['dataset']
+augmentation_config = config['augmentation']
+image_size = tuple(dataset_config['image_size'])
+
+transform_pipelines = get_transforms(
+    image_size=image_size,
+    augmentation_config=augmentation_config,
 )
-print(f"Train batches: {len(train_loader)} | Val batches: {len(val_loader)} | Test batches: {len(test_loader)}")
-print("Class categories:", classes)""")
+
+print('Training pipeline:')
+print(transform_pipelines['train'])
+print('\\nValidation/test pipeline:')
+print(transform_pipelines['val'])"""),
+    md_cell("""## 1. Load the frozen splits
+
+The loader independently verifies the manifest checksum bundle, class mapping, split counts, path separation, and physical-leaf group separation before constructing datasets."""),
+    code_cell("""train_loader, val_loader, test_loader, classes, class_to_idx = get_dataloaders(
+    raw_dir=project_root / dataset_config['raw_dir'],
+    manifest_dir=project_root / dataset_config['manifest_dir'],
+    batch_size=config['training']['batch_size'],
+    image_size=image_size,
+    random_seed=config['project']['random_seed'],
+    num_workers=dataset_config['num_workers'],
+    augmentation_config=augmentation_config,
+)
+
+print(f'Classes: {len(classes)}')
+print(
+    f'Images — train: {len(train_loader.dataset):,}, '
+    f'validation: {len(val_loader.dataset):,}, test: {len(test_loader.dataset):,}'
+)
+print(
+    f'Batches — train: {len(train_loader):,}, '
+    f'validation: {len(val_loader):,}, test: {len(test_loader):,}'
+)"""),
+    md_cell("""## 2. Verify the transform contract
+
+These assertions prove that all stochastic operations are restricted to training and that repeated validation/test preprocessing produces identical tensors."""),
+    code_cell("""random_transform_types = (
+    transforms.RandomHorizontalFlip,
+    transforms.RandomRotation,
+    transforms.RandomAffine,
+    transforms.ColorJitter,
+)
+
+for transform_type in random_transform_types:
+    assert any(
+        isinstance(transform, transform_type)
+        for transform in transform_pipelines['train'].transforms
+    )
+    assert not any(
+        isinstance(transform, transform_type)
+        for transform in transform_pipelines['val'].transforms
+    )
+    assert not any(
+        isinstance(transform, transform_type)
+        for transform in transform_pipelines['test'].transforms
+    )
+
+training_image_path = Path(train_loader.dataset.image_paths[0])
+with Image.open(training_image_path) as image_file:
+    training_image = image_file.convert('RGB')
+
+validation_once = transform_pipelines['val'](training_image)
+validation_twice = transform_pipelines['val'](training_image)
+test_once = transform_pipelines['test'](training_image)
+
+assert torch.equal(validation_once, validation_twice)
+assert torch.equal(validation_once, test_once)
+assert validation_once.shape == (3, *image_size)
+print('Passed: augmentation is training-only and evaluation preprocessing is deterministic.')"""),
+    md_cell("""## 3. Visualize training-only augmentation
+
+The examples below use fixed seeds for reproducibility. They demonstrate possible training views of one source image alongside its deterministic evaluation view."""),
+    code_cell("""mean = augmentation_config['normalization']['mean']
+std = augmentation_config['normalization']['std']
+
+figure, axes = plt.subplots(1, 6, figsize=(18, 4))
+axes[0].imshow(training_image)
+axes[0].set_title('Original training image')
+
+for index in range(4):
+    torch.manual_seed(config['project']['random_seed'] + index)
+    augmented = transform_pipelines['train'](training_image)
+    axes[index + 1].imshow(denormalize_image(augmented, mean=mean, std=std))
+    axes[index + 1].set_title(f'Augmented {index + 1}')
+
+axes[5].imshow(denormalize_image(validation_once, mean=mean, std=std))
+axes[5].set_title('Validation/test')
+
+for axis in axes:
+    axis.axis('off')
+figure.tight_layout()
+plt.show()"""),
+    code_cell("""display(Markdown(f'''## Verified preprocessing summary
+
+- Input shape: **3 × {image_size[0]} × {image_size[1]}** RGB.
+- Training augmentation: horizontal flip, rotation, zoom, brightness, and contrast jitter.
+- Validation/test: deterministic resize, center crop, tensor conversion, and normalization only.
+- Normalization mean: **{augmentation_config['normalization']['mean']}**.
+- Normalization standard deviation: **{augmentation_config['normalization']['std']}**.
+- Frozen classes: **{len(classes)}**, with one shared class-to-index mapping across all partitions.
+'''))""")
 ])
 
 # 3. Custom CNN

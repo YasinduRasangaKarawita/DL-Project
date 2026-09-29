@@ -26,10 +26,11 @@ def get_mobilenet_v3(num_classes: int = 15, pretrained: bool = True, freeze_base
 
 def unfreeze_mobilenet_layers(model: nn.Module, layers_to_unfreeze: list = None) -> None:
     """
-    Unfreeze top inverted residual bottleneck blocks for fine-tuning.
+    Unfreeze the last inverted-residual stage (features.13-15) plus the final
+    Conv2dNormActivation (features.16) for fine-tuning.
     """
     if layers_to_unfreeze is None:
-        layers_to_unfreeze = ["14", "15", "16"]
+        layers_to_unfreeze = ["13", "14", "15", "16"]
 
     for name, param in model.named_parameters():
         if any(f"features.{layer}" in name for layer in layers_to_unfreeze) or "classifier" in name:

@@ -429,18 +429,136 @@ print(f"Phase 2 (Fine-tuning layer4) - Total: {total_p:,} | Trainable: {train_p:
 
 # 5. EfficientNetB0
 nb5 = make_notebook([
-    md_cell("# ⚡ 05. EfficientNetB0 Compound Scaling\nEvaluates EfficientNetB0 balance between computational depth, width, resolution scaling and classification accuracy."),
-    code_cell("""import json, os, sys, torch
+    md_cell("""# ⚡ 05. EfficientNet-B0 Compound Scaling & MBConv Architecture
+
+This notebook documents and verifies the **EfficientNet-B0** convolutional neural network for plant disease diagnosis.
+EfficientNet balances network depth $d$, channel width $w$, and input resolution $r$ using a principled compound scaling coefficient:
+
+$$\\text{depth: } d = \\alpha^\\phi, \\quad \\text{width: } w = \\beta^\\phi, \\quad \\text{resolution: } r = \\gamma^\\phi$$
+$$\\text{subject to } \\alpha \\cdot \\beta^2 \\cdot \\gamma^2 \\approx 2, \\quad \\alpha \\ge 1, \\beta \\ge 1, \\gamma \\ge 1$$
+
+Under the frozen transfer learning protocol:
+- **Phase 1 (Feature Extraction):** Backbone weights are frozen; only the custom classification head (`Dropout(p=0.3)` + `Linear(1280, 38)`) is optimized.
+- **Phase 2 (Fine-Tuning):** The final MBConv stage (`features.7`) and head convolution (`features.8`) are unfrozen with a reduced learning rate."""),
+    code_cell("""import json
+import sys
 from pathlib import Path
+import pandas as pd
+import torch
+from IPython.display import Markdown, display
 
-sys.path.append('..')
+project_root = Path.cwd().resolve()
+if not (project_root / 'src').is_dir():
+    project_root = project_root.parent
+sys.path.insert(0, str(project_root))
+
 from src.models.efficientnet_b0 import get_efficientnet_b0, unfreeze_efficientnet_layers
-from src.utils.helpers import count_parameters
+from src.utils.helpers import count_parameters, load_yaml_config
 
-mapping = json.loads(Path('../data/splits/class_mapping.json').read_text(encoding='utf-8'))
-model = get_efficientnet_b0(num_classes=len(mapping['classes']), pretrained=True, freeze_base=True)
-total_p, train_p = count_parameters(model)
-print(f"EfficientNetB0 - Total: {total_p:,} | Trainable: {train_p:,}")""")
+config = load_yaml_config(str(project_root / 'configs/config.yaml'))
+model_config = config['models']['efficientnet_b0']
+image_size = tuple(config['dataset']['image_size'])
+
+mapping = json.loads((project_root / 'data/splits/class_mapping.json').read_text(encoding='utf-8'))
+classes = mapping['classes']
+print(f'Total Classes: {len(classes)}')
+print(f'Configured Dropout: {model_config["dropout_rate"]}')
+print(f'Fine-tune Unfreeze Layers: {model_config["fine_tune_unfreeze_layers"]}')"""),
+    md_cell("""## 1. Phase 1 Model Construction (Frozen Feature Extractor)
+
+We initialize EfficientNet-B0. The convolutional backbone is frozen, and the final classification head is replaced with a dropout regularizer ($p=0.3$) and a 38-class linear projection."""),
+    code_cell("""model = get_efficientnet_b0(
+    num_classes=len(classes),
+    pretrained=False,
+    freeze_base=True,
+    dropout_rate=model_config['dropout_rate'],
+)
+model.eval()
+
+total_p, trainable_p = count_parameters(model)
+print(f'Phase 1 — Total Parameters:     {total_p:,}')
+print(f'Phase 1 — Trainable Parameters: {trainable_p:,} ({trainable_p / total_p * 100:.2f}%)')
+print(f'Phase 1 — Frozen Parameters:    {total_p - trainable_p:,}')
+
+assert total_p == 4_056_226
+assert trainable_p == 48_678"""),
+    md_cell("""## 2. Stage-by-Stage Architectural Audit
+
+Using forward hooks, we record output dimensions and parameter counts for each MBConv stage, Squeeze-and-Excitation attention module, and classification head."""),
+    code_cell("""stage_records = []
+
+def capture_stage(stage_name, operation):
+    def hook(module, inputs, output):
+        stage_records.append({
+            'Stage': stage_name,
+            'Operation': operation,
+            'Output Shape': ' × '.join(str(v) for v in output.shape),
+            'Parameters': sum(p.numel() for p in module.parameters()),
+        })
+    return hook
+
+stage_specs = [
+    (model.features[0], 'Stem Conv', 'Conv2d 3×3, stride=2 (3→32 ch) + BatchNorm + SiLU'),
+    (model.features[1], 'Stage 1 (MBConv1)', '1 block: Depthwise 3×3 + SE + Linear 1×1 (32→16 ch)'),
+    (model.features[2], 'Stage 2 (MBConv6)', '2 blocks: Expand 6× + DW 3×3, stride=2 + SE (16→24 ch)'),
+    (model.features[3], 'Stage 3 (MBConv6)', '2 blocks: Expand 6× + DW 5×5, stride=2 + SE (24→40 ch)'),
+    (model.features[4], 'Stage 4 (MBConv6)', '3 blocks: Expand 6× + DW 3×3, stride=2 + SE (40→80 ch)'),
+    (model.features[5], 'Stage 5 (MBConv6)', '3 blocks: Expand 6× + DW 5×5 + SE (80→112 ch)'),
+    (model.features[6], 'Stage 6 (MBConv6)', '4 blocks: Expand 6× + DW 5×5, stride=2 + SE (112→192 ch)'),
+    (model.features[7], 'Stage 7 (MBConv6)', '1 block: Expand 6× + DW 3×3 + SE (192→320 ch)'),
+    (model.features[8], 'Stage 8 (Head Conv)', 'Conv2d 1×1 (320→1280 ch) + BatchNorm + SiLU'),
+    (model.avgpool, 'Global Average Pool', 'AdaptiveAvgPool2d((1, 1))'),
+    (model.classifier[0], 'Regularization', f'Dropout(p={model_config["dropout_rate"]})'),
+    (model.classifier[1], 'Classification Head', f'Linear(1280 → {len(classes)})'),
+]
+
+handles = [module.register_forward_hook(capture_stage(name, op)) for module, name, op in stage_specs]
+
+dummy_input = torch.zeros(1, 3, *image_size)
+with torch.no_grad():
+    logits = model(dummy_input)
+
+for handle in handles:
+    handle.remove()
+
+architecture = pd.DataFrame([
+    {
+        'Stage': 'Input',
+        'Operation': 'RGB Image Tensor',
+        'Output Shape': ' × '.join(str(v) for v in dummy_input.shape),
+        'Parameters': 0,
+    },
+    *stage_records,
+])
+
+assert logits.shape == (1, len(classes))
+display(architecture)"""),
+    md_cell("""## 3. Phase 2 Fine-Tuning: Unfreezing Stages 7 & 8
+
+In Phase 2, we unfreeze the final MBConv stage (`features.7`) and head convolution (`features.8`) with a reduced learning rate $\eta_2 = 1\times 10^{-4}$."""),
+    code_cell("""unfreeze_efficientnet_layers(model, ['7', '8'])
+
+total_p_ft, trainable_p_ft = count_parameters(model)
+print(f'Phase 2 — Total Parameters:     {total_p_ft:,}')
+print(f'Phase 2 — Trainable Parameters: {trainable_p_ft:,} ({trainable_p_ft / total_p_ft * 100:.2f}%)')
+print(f'Phase 2 — Frozen Parameters:    {total_p_ft - trainable_p_ft:,}')
+
+assert total_p_ft == 4_056_226
+assert trainable_p_ft == 1_178_070"""),
+    md_cell("""## 4. Training Command Reference
+
+To execute official EfficientNet-B0 training under the reproducible protocol:
+
+```bash
+# Full two-phase training (Phase 1: 15 epochs, Phase 2: 10 epochs fine-tune)
+python run_pipeline.py train --model efficientnet_b0 --seed 42
+
+# Single-epoch pilot check
+python run_pipeline.py train --model efficientnet_b0 --seed 42 --epochs 1 --allow-dirty
+
+# Evaluate best validation checkpoint
+python run_pipeline.py evaluate --checkpoint models/efficientnet/<run-id>/best_inference.pt --split validation
+```""")
 ])
 
 # 6. MobileNetV3

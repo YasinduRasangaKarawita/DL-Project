@@ -108,6 +108,26 @@ def test_resume_checkpoint_round_trip_restores_training_state(tmp_path):
     assert torch.equal(loaded["dataloader_generator_state"], generator.get_state())
 
 
+def test_rng_restore_normalizes_serialized_tensor_to_cpu(monkeypatch):
+    state = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch_cpu": torch.get_rng_state(),
+    }
+    observed = {}
+    original_set_rng_state = torch.set_rng_state
+
+    def recording_set_rng_state(value):
+        observed["device"] = value.device.type
+        observed["dtype"] = value.dtype
+        original_set_rng_state(value)
+
+    monkeypatch.setattr(torch, "set_rng_state", recording_set_rng_state)
+    restore_rng_state(state)
+
+    assert observed == {"device": "cpu", "dtype": torch.uint8}
+
+
 def test_inference_checkpoint_is_self_describing(tmp_path):
     path = tmp_path / "best_inference.pt"
     model = nn.Linear(2, 2)

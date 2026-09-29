@@ -246,7 +246,9 @@ def train_experiment(
         scheduler.load_state_dict(callback_states["scheduler"])
         restore_rng_state(checkpoint["rng_state"])
         if checkpoint.get("dataloader_generator_state") is not None:
-            train_loader.generator.set_state(checkpoint["dataloader_generator_state"])
+            train_loader.generator.set_state(
+                checkpoint["dataloader_generator_state"].detach().cpu()
+            )
         completed_epoch = int(checkpoint["epoch"])
         completed_phase_epoch = int(checkpoint["phase_epoch"])
 

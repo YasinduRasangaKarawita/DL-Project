@@ -409,22 +409,131 @@ display(architecture)"""),
 
 # 4. ResNet50
 nb4 = make_notebook([
-    md_cell("# 🧠 04. ResNet50 Transfer Learning & Fine-Tuning\nTransfer learning with residual skip-connections. Evaluates frozen feature extraction vs fine-tuning layer4."),
-    code_cell("""import json, os, sys, torch
+    md_cell("""# 🧠 04. ResNet-50 Transfer Learning & Residual Bottlenecks
+
+This notebook documents and verifies the **ResNet-50** deep residual network architecture for plant disease classification.
+It evaluates ImageNet-1K transfer learning under the frozen experimental protocol:
+- **Phase 1 (Feature Extraction):** Backbone convolutional weights are frozen; only the custom classification head is trained.
+- **Phase 2 (Fine-Tuning):** The top residual stage (`layer4`) is unfrozen with a reduced learning rate to adapt high-level domain representations.
+
+The notebook verifies exact parameter allocations, tensor shapes through forward hooks, and training interface commands."""),
+    code_cell("""import json
+import sys
 from pathlib import Path
+import pandas as pd
+import torch
+from IPython.display import Markdown, display
 
-sys.path.append('..')
+project_root = Path.cwd().resolve()
+if not (project_root / 'src').is_dir():
+    project_root = project_root.parent
+sys.path.insert(0, str(project_root))
+
 from src.models.resnet50 import get_resnet50, unfreeze_resnet50_layers
-from src.utils.helpers import count_parameters
+from src.utils.helpers import count_parameters, load_yaml_config
 
-mapping = json.loads(Path('../data/splits/class_mapping.json').read_text(encoding='utf-8'))
-model = get_resnet50(num_classes=len(mapping['classes']), pretrained=True, freeze_base=True)
-total_p, train_p = count_parameters(model)
-print(f"Phase 1 (Frozen) - Total: {total_p:,} | Trainable: {train_p:,}")
+config = load_yaml_config(str(project_root / 'configs/config.yaml'))
+model_config = config['models']['resnet50']
+image_size = tuple(config['dataset']['image_size'])
 
-unfreeze_resnet50_layers(model, ['layer4'])
-total_p, train_p = count_parameters(model)
-print(f"Phase 2 (Fine-tuning layer4) - Total: {total_p:,} | Trainable: {train_p:,}")""")
+mapping = json.loads((project_root / 'data/splits/class_mapping.json').read_text(encoding='utf-8'))
+classes = mapping['classes']
+print(f'Total Classes: {len(classes)}')
+print(f'Configured Dropout: {model_config["dropout_rate"]}')
+print(f'Fine-tune Unfreeze Layers: {model_config["fine_tune_unfreeze_layers"]}')"""),
+    md_cell("""## 1. Phase 1 Model Construction (Frozen Feature Extractor)
+
+We initialize ResNet-50 with pretrained ImageNet weights. The base layers are frozen, and the final fully connected layer is replaced with a custom dropout regularizer and 38-class linear projection."""),
+    code_cell("""model = get_resnet50(
+    num_classes=len(classes),
+    pretrained=False,
+    freeze_base=True,
+    dropout_rate=model_config['dropout_rate'],
+)
+model.eval()
+
+total_p, trainable_p = count_parameters(model)
+print(f'Phase 1 — Total Parameters:     {total_p:,}')
+print(f'Phase 1 — Trainable Parameters: {trainable_p:,} ({trainable_p / total_p * 100:.2f}%)')
+print(f'Phase 1 — Frozen Parameters:    {total_p - trainable_p:,}')
+
+assert total_p == 23_585_894
+assert trainable_p == 77_862"""),
+    md_cell("""## 2. Layer-by-Layer Architectural Audit
+
+Using forward hooks, we record the exact output dimensions and parameter counts of each major stage in the ResNet-50 backbone and classifier."""),
+    code_cell("""stage_records = []
+
+def capture_stage(stage_name, operation):
+    def hook(module, inputs, output):
+        stage_records.append({
+            'Stage': stage_name,
+            'Operation': operation,
+            'Output Shape': ' × '.join(str(v) for v in output.shape),
+            'Parameters': sum(p.numel() for p in module.parameters()),
+        })
+    return hook
+
+stage_specs = [
+    (model.conv1, 'Stem Conv', 'Conv2d 7×7, stride=2, padding=3 (3→64)'),
+    (model.bn1, 'Stem BatchNorm', 'BatchNorm2d(64) + ReLU'),
+    (model.maxpool, 'Stem MaxPool', 'MaxPool2d 3×3, stride=2, padding=1'),
+    (model.layer1, 'ResNet Layer 1', '3 Bottleneck Blocks (64→256 ch)'),
+    (model.layer2, 'ResNet Layer 2', '4 Bottleneck Blocks (256→512 ch, stride=2)'),
+    (model.layer3, 'ResNet Layer 3', '6 Bottleneck Blocks (512→1024 ch, stride=2)'),
+    (model.layer4, 'ResNet Layer 4', '3 Bottleneck Blocks (1024→2048 ch, stride=2)'),
+    (model.avgpool, 'Global Average Pool', 'AdaptiveAvgPool2d((1, 1))'),
+    (model.fc[0], 'Regularization', f'Dropout(p={model_config["dropout_rate"]})'),
+    (model.fc[1], 'Classification Head', f'Linear(2048 → {len(classes)})'),
+]
+
+handles = [module.register_forward_hook(capture_stage(name, op)) for module, name, op in stage_specs]
+
+dummy_input = torch.zeros(1, 3, *image_size)
+with torch.no_grad():
+    logits = model(dummy_input)
+
+for handle in handles:
+    handle.remove()
+
+architecture = pd.DataFrame([
+    {
+        'Stage': 'Input',
+        'Operation': 'RGB Image Tensor',
+        'Output Shape': ' × '.join(str(v) for v in dummy_input.shape),
+        'Parameters': 0,
+    },
+    *stage_records,
+])
+
+assert logits.shape == (1, len(classes))
+display(architecture)"""),
+    md_cell("""## 3. Phase 2 Fine-Tuning: Unfreezing Layer 4
+
+In Phase 2, we unfreeze `layer4` (the final 3 bottleneck residual blocks) to allow high-level visual representations to adapt to plant pathology morphology."""),
+    code_cell("""unfreeze_resnet50_layers(model, model_config['fine_tune_unfreeze_layers'])
+
+total_p_ft, trainable_p_ft = count_parameters(model)
+print(f'Phase 2 — Total Parameters:     {total_p_ft:,}')
+print(f'Phase 2 — Trainable Parameters: {trainable_p_ft:,} ({trainable_p_ft / total_p_ft * 100:.2f}%)')
+print(f'Phase 2 — Frozen Parameters:    {total_p_ft - trainable_p_ft:,}')
+
+assert total_p_ft == 23_585_894
+assert trainable_p_ft == 15_042_598"""),
+    md_cell("""## 4. Training Command Reference
+
+To execute official ResNet-50 training under the reproducible protocol:
+
+```bash
+# Full two-phase training (Phase 1: 15 epochs, Phase 2: 10 epochs fine-tune)
+python run_pipeline.py train --model resnet50 --seed 42
+
+# Single-epoch pilot check
+python run_pipeline.py train --model resnet50 --seed 42 --epochs 1 --allow-dirty
+
+# Evaluate best validation checkpoint
+python run_pipeline.py evaluate --checkpoint models/resnet50/<run-id>/best_inference.pt --split validation
+```""")
 ])
 
 # 5. EfficientNetB0

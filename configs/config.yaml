@@ -69,7 +69,7 @@ models:
     name: "MobileNet_V3_Large"
     pretrained: true
     freeze_base: true
-    fine_tune_unfreeze_layers: ["features.14", "features.15", "features.16"]
+    fine_tune_unfreeze_layers: ["features.13", "features.14", "features.15", "features.16"]
     dropout_rate: 0.2
     save_path: "models/mobilenet/best_model.pt"
 

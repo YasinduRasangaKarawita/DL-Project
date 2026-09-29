@@ -6,11 +6,12 @@ Implemented interface:
 
 - `prepare_data.py`: lock, acquire, audit, review, and validate the pinned PlantVillage
   source and frozen split manifests;
+- root `run_pipeline.py train`: train or resume one selected model and seed;
+- root `run_pipeline.py evaluate`: evaluate one selected inference checkpoint without
+  training, with an explicit locked-test safeguard.
 
 Planned interfaces:
 
-- `train.py`: train or resume one selected model;
-- `evaluate.py`: evaluate a frozen checkpoint without training;
 - `benchmark.py`: compare final models on one device;
 - `download_models.py`: download release assets and verify checksums.
 

@@ -1,6 +1,8 @@
 # Experiment protocol
 
-This document is the pre-training checklist. The existing pipeline is suitable for a smoke test, not yet for final assignment results.
+This document is the pre-training checklist. The shared one-model interface implements the
+required training and evaluation contracts, but it remains provisional until the GPU pilot,
+independent review, and `training-v1.0` tag are complete.
 
 ## Completed data foundations
 
@@ -10,15 +12,27 @@ This document is the pre-training checklist. The existing pipeline is suitable f
 - The data loader consumes those checksum-verified manifests rather than discovering
   classes or creating a random split at runtime.
 
-## Required fixes before final runs
+## Training-interface status
 
-1. Make every declared configuration field authoritative; remove hard-coded pretrained, freeze, unfreeze, optimizer, and scheduler values.
-2. Re-create callbacks after replacing the optimizer during fine-tuning so the scheduler controls the new optimizer.
-3. Prevent frozen backbone BatchNorm statistics from changing during feature extraction.
-4. Restore the best phase-one checkpoint before fine-tuning rather than continuing from the final phase-one epoch.
-5. Save complete resumable checkpoints and self-describing inference checkpoints.
-6. Add warm-up, synchronization, repeated batches, and hardware metadata to performance measurement.
-7. Make the app fail safely when weights or metadata are missing; add input/OOD handling and calibrated confidence.
+Implemented and covered by automated tests:
+
+1. Declared model, optimizer, scheduler, seed, and preprocessing configuration drives the run.
+2. Fine-tuning restores the best phase-one checkpoint and creates a new optimizer and callbacks.
+3. Frozen-backbone BatchNorm running statistics stay fixed during feature extraction.
+4. Each epoch writes a complete resume checkpoint and macro-F1-selected inference checkpoint.
+5. Resume restores model, optimizer, callbacks, RNG, data-shuffle generator, history, and phase.
+6. Standalone evaluation validates the class map and manifest hash, records ROC-AUC, latency,
+   throughput, peak GPU memory, hardware, raw predictions, and confusion matrices.
+7. Locked-test evaluation is separate from training and requires explicit confirmation.
+
+Still required before creating `training-v1.0`:
+
+1. Run a GPU pilot from a clean commit and verify interruption/resume in a fresh runtime.
+2. Have another member review the checkpoint schema, result schema, and test-set safeguard.
+3. Record the accepted commit and create the annotated tag.
+
+The Streamlit app still needs safe release-checkpoint loading, input/OOD handling, and
+calibrated confidence before the final demonstration. That work does not block training.
 
 ## Dataset controls
 

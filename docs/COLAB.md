@@ -65,18 +65,39 @@ manifest-bundle SHA-256 is
 
 ## 4. Train and resume
 
-The target interface for training should be a script backed by `src/`, for example:
+Train exactly one model and seed. Write artifacts directly to mounted Drive so every epoch's
+resume checkpoint and history survive a runtime disconnect:
 
 ```bash
-python scripts/train.py \
-  --config configs/config.yaml \
+python run_pipeline.py train \
   --model efficientnet_b0 \
   --seed 42 \
-  --data-root data/raw/plantvillage/color \
-  --output-dir /content/drive/MyDrive/SE4050_PlantDisease/checkpoints
+  --config configs/config.yaml \
+  --artifact-root /content/drive/MyDrive/SE4050_PlantDisease
 ```
 
-`scripts/train.py` is a target interface and still needs to be implemented; the current executable is `python run_pipeline.py`, which trains all models. Do not duplicate the training implementation in four notebooks.
+Resume with the same model, seed, configuration, Git commit, and manifest bundle:
+
+```bash
+python run_pipeline.py train \
+  --model efficientnet_b0 \
+  --seed 42 \
+  --config configs/config.yaml \
+  --artifact-root /content/drive/MyDrive/SE4050_PlantDisease \
+  --resume /content/drive/MyDrive/SE4050_PlantDisease/models/efficientnet_b0/RUN_ID/last_resume.pt
+```
+
+Evaluate validation data without retraining:
+
+```bash
+python run_pipeline.py evaluate \
+  --checkpoint /content/drive/MyDrive/SE4050_PlantDisease/models/efficientnet_b0/RUN_ID/best_inference.pt \
+  --split validation \
+  --output-root /content/drive/MyDrive/SE4050_PlantDisease
+```
+
+Do not add `--confirm-locked-test` until all model selection is complete and Member 3 is
+performing the agreed one-time final test evaluation.
 
 A resumable checkpoint should contain model, optimizer, scheduler/scaler states, epoch, best metric, class map, preprocessing metadata, config, seed, Git SHA, and library versions. The smaller inference checkpoint needs model weights, class map, architecture, preprocessing, and validation score.
 

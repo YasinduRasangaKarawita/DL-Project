@@ -1,7 +1,9 @@
-import os
 import csv
+import os
+from typing import Any, Dict
+
 import torch
-from typing import Dict, Any
+
 from ..utils.logger import setup_logger
 
 logger = setup_logger("callbacks")
@@ -34,6 +36,23 @@ class EarlyStopping:
 
         return self.early_stop
 
+    def state_dict(self) -> Dict[str, Any]:
+        return {
+            "patience": self.patience,
+            "min_delta": self.min_delta,
+            "mode": self.mode,
+            "counter": self.counter,
+            "best_score": self.best_score,
+            "early_stop": self.early_stop,
+        }
+
+    def load_state_dict(self, state: Dict[str, Any]) -> None:
+        if state.get("mode") != self.mode:
+            raise ValueError("Early-stopping mode does not match the checkpoint")
+        self.counter = int(state["counter"])
+        self.best_score = state["best_score"]
+        self.early_stop = bool(state["early_stop"])
+
 class ModelCheckpoint:
     """
     Save best model weights when validation score improves.
@@ -60,6 +79,18 @@ class ModelCheckpoint:
             torch.save(state, self.filepath)
             return True
         return False
+
+    def state_dict(self) -> Dict[str, Any]:
+        return {
+            "monitor": self.monitor,
+            "mode": self.mode,
+            "best_val": self.best_val,
+        }
+
+    def load_state_dict(self, state: Dict[str, Any]) -> None:
+        if state.get("monitor") != self.monitor or state.get("mode") != self.mode:
+            raise ValueError("Checkpoint monitor does not match the current run")
+        self.best_val = float(state["best_val"])
 
 class ReduceLROnPlateau:
     """
@@ -93,14 +124,46 @@ class ReduceLROnPlateau:
             self.best_score = score
             self.counter = 0
 
+    def state_dict(self) -> Dict[str, Any]:
+        return {
+            "factor": self.factor,
+            "patience": self.patience,
+            "min_lr": self.min_lr,
+            "mode": self.mode,
+            "counter": self.counter,
+            "best_score": self.best_score,
+        }
+
+    def load_state_dict(self, state: Dict[str, Any]) -> None:
+        if state.get("mode") != self.mode:
+            raise ValueError("Learning-rate scheduler mode does not match the checkpoint")
+        self.counter = int(state["counter"])
+        self.best_score = state["best_score"]
+
 class CSVLogger:
     """
     Stream epoch training and validation metrics to CSV.
     """
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, *, resume: bool = False):
         self.filepath = filepath
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        self.fields = ["epoch", "train_loss", "train_acc", "val_loss", "val_acc", "lr", "epoch_time_seconds"]
+        self.fields = [
+            "epoch",
+            "phase",
+            "train_loss",
+            "train_acc",
+            "val_loss",
+            "val_acc",
+            "val_macro_f1",
+            "lr",
+            "epoch_time_seconds",
+        ]
+        if resume and os.path.exists(self.filepath):
+            with open(self.filepath, encoding="utf-8", newline="") as file_handle:
+                fieldnames = csv.DictReader(file_handle).fieldnames
+            if fieldnames != self.fields:
+                raise ValueError("Existing training history has an incompatible schema")
+            return
         with open(self.filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=self.fields)
             writer.writeheader()

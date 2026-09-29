@@ -91,7 +91,7 @@ Then each member should:
 - [ ] Configure their own Git name and university email.
 - [ ] Read `README.md`, `CONTRIBUTING.md`, `docs/EXPERIMENT_PROTOCOL.md`, and `docs/COLAB.md`.
 - [ ] Run the tests and record any setup problem in a GitHub issue.
-- [ ] Run `python run_pipeline.py --quick-run` only as a smoke test.
+- [ ] Run a declared one-epoch pilot with `python run_pipeline.py train --model <name> --seed 42 --epochs 1 --allow-dirty`.
 - [ ] Confirm that synthetic results are not used in the report.
 - [ ] Create a small documentation pull request to prove the branch/review workflow works.
 
@@ -119,37 +119,36 @@ git push origin training-v1.0
 
 No member should launch a final run before this tag exists.
 
-## 5. Shared interfaces the team must implement
+## 5. Shared interfaces
 
-The current `run_pipeline.py` is useful for a smoke test but is not sufficient for four independent Colab workers. Create these thin command-line entry points, backed by reusable functions in `src/`:
+The shared implementation is backed by reusable functions in `src/`. `run_pipeline.py`
+provides the current train/resume and standalone evaluation commands:
 
 | Interface | Responsibility |
 |---|---|
 | `scripts/prepare_data.py` | Validate data, detect duplicates/leakage, and create/freeze split manifests |
-| `scripts/train.py` | Train or resume one selected architecture and seed |
-| `scripts/evaluate.py` | Evaluate one or more frozen checkpoints without training |
+| `run_pipeline.py train` | Train or resume one selected architecture and seed |
+| `run_pipeline.py evaluate` | Evaluate one frozen checkpoint without training |
 | `scripts/benchmark.py` | Measure latency, throughput, memory, parameters, and model size consistently |
 | `scripts/download_models.py` | Download release assets and verify SHA-256 checksums |
 
 Target training interface:
 
 ```bash
-python scripts/train.py \
+python run_pipeline.py train \
   --config configs/config.yaml \
   --model resnet50 \
   --seed 42 \
-  --data-root /content/data/plant_village \
-  --output-dir /content/drive/MyDrive/SE4050/checkpoints
+  --artifact-root /content/drive/MyDrive/SE4050
 ```
 
 Target evaluation interface:
 
 ```bash
-python scripts/evaluate.py \
-  --config configs/config.yaml \
-  --checkpoints-dir models/release \
-  --split-manifest data/splits/test.csv \
-  --output-dir results/final_evaluation
+python run_pipeline.py evaluate \
+  --checkpoint models/release/resnet50_best.pt \
+  --split test \
+  --confirm-locked-test
 ```
 
 ### 5.1 Checkpoint contract
@@ -172,13 +171,14 @@ Each run must write to a unique run directory:
 
 ```text
 results/<run_id>/<model_name>/
-├── config.yaml
 ├── run_metadata.json
 ├── history.csv
-├── validation_metrics.json
-├── test_metrics.json
-├── predictions.csv
-└── environment.txt
+├── validation/
+│   ├── metrics.json
+│   └── predictions.npz
+└── test/
+    ├── metrics.json
+    └── predictions.npz
 ```
 
 Use a run ID such as:
@@ -583,4 +583,3 @@ Every member should be able to answer:
 10. Which model should be deployed under different resource constraints?
 11. Why might performance fall on real field photographs?
 12. What exactly did each team member contribute?
-

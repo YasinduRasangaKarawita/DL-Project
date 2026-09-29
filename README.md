@@ -17,7 +17,7 @@ The project is being developed for the SE4050 deep-learning assignment. The goal
 | Area | Status |
 |---|---|
 | Code for four architectures | Present |
-| Training/evaluation pipeline | Present; requires the fixes listed in `docs/EXPERIMENT_PROTOCOL.md` |
+| Training/evaluation pipeline | Shared one-model interface implemented; team review and GPU pilot pending |
 | Real public dataset | Reproducible acquisition implemented; local files remain ignored |
 | Frozen dataset splits | Present; grouped 37,037 train / 6,540 validation / 10,709 test |
 | Final trained models | Not yet produced |
@@ -45,11 +45,32 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Run the existing smoke-test pipeline:
+Train one model and one configured seed. This command never evaluates the locked test set:
 
 ```powershell
-python run_pipeline.py --quick-run
+python run_pipeline.py train --model custom_cnn --seed 42
 ```
+
+For a one-epoch provisional pilot from an uncommitted development branch:
+
+```powershell
+python run_pipeline.py train --model custom_cnn --seed 42 --epochs 1 --allow-dirty
+```
+
+Resume the same run from its durable checkpoint:
+
+```powershell
+python run_pipeline.py train --model custom_cnn --seed 42 --resume models/custom_cnn/<run-id>/last_resume.pt
+```
+
+Evaluate the selected checkpoint on validation data:
+
+```powershell
+python run_pipeline.py evaluate --checkpoint models/custom_cnn/<run-id>/best_inference.pt --split validation
+```
+
+Locked-test evaluation is deliberately separate and additionally requires
+`--confirm-locked-test`. Use it only once, after the team has completed model selection.
 
 Acquire the locked PlantVillage color dataset:
 
@@ -76,8 +97,8 @@ fetch the reviewed revision rather than a moving `main`. Only the Data Lead shou
 deliberately refresh that lock. The frozen split contains 37,037 training, 6,540 validation,
 and 10,709 test images across 38 classes. Its bundle checksum is
 `19ca82ed9a1832dbeca228bbcb35274cd3362758e918818e64587f4d0bd1306c`.
-Do not run final training until the remaining pipeline fixes are complete and the reviewed
-training commit is tagged `training-v1.0`.
+Do not run final training until the shared interface has passed a GPU pilot and resume test,
+received the required review, and the reviewed commit is tagged `training-v1.0`.
 
 Run the Streamlit prototype:
 

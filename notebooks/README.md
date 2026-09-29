@@ -10,5 +10,9 @@ Notebooks provide the narrative and visual analysis around functions implemented
 6. `06_mobilenet.ipynb`
 7. `07_model_comparison.ipynb`
 
+`colab_entry_mobilenet_v3.ipynb` is the shared Colab entry point (Member 4): it clones a
+tagged commit, mounts Drive, stages the dataset, and calls `run_pipeline.py`/`scripts/`
+directly rather than duplicating training logic.
+
 The current notebooks are generated, unexecuted scaffolds. They must be completed and rerun against the final public dataset. Avoid copying training logic into cells; import it from `src/` so notebooks and scripts cannot silently diverge.
 
